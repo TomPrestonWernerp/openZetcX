@@ -1,0 +1,116 @@
+import { useState, useEffect, useRef, useCallback } from 'react';
+import { useSettingsStore } from '../store';
+import { hanaFetch } from '../api';
+import { t } from '../helpers';
+import { switchToAgent } from '../actions';
+import { Overlay } from '../../ui';
+import { getOrderedYuanEntries, getYuanDisplayName, type YuanMeta } from '../tabs/agent/YuanSelector';
+import styles from '../Settings.module.css';
+
+export function AgentCreateOverlay() {
+  const showToast = useSettingsStore(s => s.showToast);
+  const [visible, setVisible] = useState(false);
+  const [name, setName] = useState('');
+  const [yuan, setYuan] = useState('openZetcX');
+  const [creating, setCreating] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handler = () => {
+      setName('');
+      setYuan('openZetcX');
+      setVisible(true);
+      requestAnimationFrame(() => inputRef.current?.focus());
+    };
+    window.addEventListener('hana-show-agent-create', handler);
+    return () => window.removeEventListener('hana-show-agent-create', handler);
+  }, []);
+
+  const close = useCallback(() => setVisible(false), []);
+
+  const create = async () => {
+    if (creating) return;
+    const trimmed = name.trim();
+    if (!trimmed) { showToast(t('settings.agent.nameRequired'), 'error'); return; }
+
+    setCreating(true);
+    try {
+      const res = await hanaFetch('/api/agents', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: trimmed, yuan }),
+      });
+      const data = await res.json();
+      if (data.error) throw new Error(data.error);
+      await switchToAgent(data.id);
+      close();
+      showToast(t('settings.agent.created', { name: data.name }), 'success');
+    } catch (err: any) {
+      showToast(t('settings.agent.createFailed') + ': ' + err.message, 'error');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  if (!visible) return null;
+
+  const types = (t('yuan.types') || {}) as Record<string, YuanMeta>;
+  const entries = getOrderedYuanEntries(types);
+
+  return (
+    <Overlay
+      open={visible}
+      onClose={close}
+      backdrop="blur"
+      closeOnBackdrop={!creating}
+      closeOnEsc={!creating}
+      zIndex={110}
+      className={styles['agent-create-card']}
+      disableContainerAnimation
+    >
+        <h3 className={styles['agent-create-title']}>{t('settings.agent.createTitle')}</h3>
+        <div className={styles['settings-form-field']}>
+          <input
+            ref={inputRef}
+            className={styles['settings-input']}
+            type="text"
+            placeholder={t('settings.agent.namePlaceholder')}
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            disabled={creating}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') { e.preventDefault(); create(); }
+              if (e.key === 'Escape' && !creating) close();
+            }}
+          />
+        </div>
+        <div className={styles['settings-form-field']}>
+          <div className="yuan-selector">
+            <div className="yuan-chips">
+              {entries.map(([key, meta]) => (
+                <button
+                  key={key}
+                  className={`yuan-chip${key === yuan ? ' selected' : ''}`}
+                  type="button"
+                  disabled={creating}
+                  onClick={() => setYuan(key)}
+                >
+                  <img className="yuan-chip-avatar" src={`assets/${meta.avatar || 'openZetcX.png'}`} draggable={false} />
+                  <div className="yuan-chip-info">
+                    <span className="yuan-chip-name">{getYuanDisplayName(key)}</span>
+                    <span className="yuan-chip-desc">{meta.label || ''}</span>
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+        <div className={styles['agent-create-actions']}>
+          <button className={styles['agent-create-cancel']} onClick={close} disabled={creating}>{t('settings.agent.cancel')}</button>
+          <button className={styles['agent-create-confirm']} onClick={create} disabled={creating}>
+            {creating ? t('settings.agent.creating') : t('settings.agent.confirm')}
+          </button>
+        </div>
+    </Overlay>
+  );
+}
