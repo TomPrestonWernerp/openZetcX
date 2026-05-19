@@ -69,6 +69,12 @@ jobs:
       - name: Build client bundles
         run: npm run build:client
 
+      - name: Disable macOS signing when certificate is missing
+        if: runner.os == 'macOS' && env.CSC_LINK == ''
+        run: |
+          echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+          echo "SKIP_NOTARIZE=true" >> "$GITHUB_ENV"
+
       - name: Setup macOS signing keychain
         if: runner.os == 'macOS' && env.CSC_LINK != ''
         run: |
@@ -108,7 +114,6 @@ jobs:
           npx electron-builder --mac dmg zip --${{ matrix.arch }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_LINK != '' }}
 
       - name: Build Windows installer
         if: runner.os == 'Windows'
