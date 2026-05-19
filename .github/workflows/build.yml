@@ -74,6 +74,7 @@ jobs:
         run: |
           echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
           echo "SKIP_NOTARIZE=true" >> "$GITHUB_ENV"
+          node -e "const fs=require('node:fs'); const p=require('./package.json'); p.build.mac.identity=null; p.build.mac.hardenedRuntime=false; delete p.build.afterSign; fs.writeFileSync('package.json', JSON.stringify(p, null, 2));"
 
       - name: Setup macOS signing keychain
         if: runner.os == 'macOS' && env.CSC_LINK != ''
