@@ -204,11 +204,11 @@ jobs:
           MISSING=()
           echo "$ASSETS" | grep -qx 'latest-mac.yml' || MISSING+=("latest-mac.yml")
           echo "$ASSETS" | grep -qx 'latest.yml' || MISSING+=("latest.yml")
-          echo "$ASSETS" | grep -qE '^openZetcX-0\.1\.0-macOS-arm64\.dmg$' || MISSING+=("macOS-arm64.dmg")
-          echo "$ASSETS" | grep -qE '^openZetcX-0\.1\.0-macOS-arm64\.zip$' || MISSING+=("macOS-arm64.zip")
-          echo "$ASSETS" | grep -qE '^openZetcX-0\.1\.0-macOS-x64\.dmg$' || MISSING+=("macOS-x64.dmg")
-          echo "$ASSETS" | grep -qE '^openZetcX-0\.1\.0-macOS-x64\.zip$' || MISSING+=("macOS-x64.zip")
-          echo "$ASSETS" | grep -qE '^openZetcX-0\.1\.0-Windows-x64\.exe$' || MISSING+=("Windows-x64.exe")
+          echo "$ASSETS" | grep -qE '^openZetcX-0\.2\.0-macOS-arm64\.dmg$' || MISSING+=("macOS-arm64.dmg")
+          echo "$ASSETS" | grep -qE '^openZetcX-0\.2\.0-macOS-arm64\.zip$' || MISSING+=("macOS-arm64.zip")
+          echo "$ASSETS" | grep -qE '^openZetcX-0\.2\.0-macOS-x64\.dmg$' || MISSING+=("macOS-x64.dmg")
+          echo "$ASSETS" | grep -qE '^openZetcX-0\.2\.0-macOS-x64\.zip$' || MISSING+=("macOS-x64.zip")
+          echo "$ASSETS" | grep -qE '^openZetcX-0\.2\.0-Windows-x64\.exe$' || MISSING+=("Windows-x64.exe")
 
           if [ ${#MISSING[@]} -gt 0 ]; then
             echo "::error::Missing required assets: ${MISSING[*]}"

@@ -6,13 +6,9 @@
  */
 
 import { useState, useEffect, useRef } from 'react';
+import appIconUrl from '../../icon.png';
 
 const DEFAULT_NAME = 'openZetcX';
-const YUAN_AVATARS: Record<string, string> = {
-  openZetcX: 'openZetcX.png',
-  butter: 'Butter.png',
-  ming: 'Ming.png',
-};
 const YUAN_SYMBOLS: Record<string, string> = {
   openZetcX: '\u273F',  // ✿
   butter: '\u274A',  // ❊
@@ -25,7 +21,7 @@ const YUAN_COLORS: Record<string, string> = {
 };
 
 export function SplashApp() {
-  const [avatarSrc, setAvatarSrc] = useState('assets/openZetcX.png');
+  const avatarSrc = appIconUrl;
   const [text, setText] = useState('');
   const [switching, setSwitching] = useState(false);
   const [symbol, setSymbol] = useState(YUAN_SYMBOLS.openZetcX);
@@ -49,21 +45,7 @@ export function SplashApp() {
 
       try {
         const hana = window.hana;
-        const [avatarPath, splashInfo] = await Promise.all([
-          hana?.getAvatarPath?.('agent'),
-          hana?.getSplashInfo?.(),
-        ]);
-
-        if (avatarPath && window.platform?.getFileUrl) {
-          const base = window.platform.getFileUrl(avatarPath);
-          if (base) {
-            setAvatarSrc(`${base}?t=${Date.now()}`);
-          } else if (splashInfo?.yuan) {
-            setAvatarSrc(`assets/${YUAN_AVATARS[splashInfo.yuan] || 'openZetcX.png'}`);
-          }
-        } else if (splashInfo?.yuan) {
-          setAvatarSrc(`assets/${YUAN_AVATARS[splashInfo.yuan] || 'openZetcX.png'}`);
-        }
+        const splashInfo = await hana?.getSplashInfo?.();
 
         if (splashInfo?.agentName) name = splashInfo.agentName;
         if (splashInfo?.locale?.startsWith('en')) locale = 'en';
