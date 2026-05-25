@@ -7,25 +7,17 @@
 
 import { useState, useEffect, useRef } from 'react';
 import appIconUrl from '../../icon.png';
+import { getYuanVisual } from '../../../../shared/yuan-visuals.js';
 
 const DEFAULT_NAME = 'openZetcX';
-const YUAN_SYMBOLS: Record<string, string> = {
-  openZetcX: '\u273F',  // ✿
-  butter: '\u274A',  // ❊
-  ming: '\u25C8',    // ◈
-};
-const YUAN_COLORS: Record<string, string> = {
-  openZetcX: '#537D96',
-  butter: '#5BA88C',
-  ming: '#8BA4B4',
-};
+const DEFAULT_VISUAL = getYuanVisual('hanako');
 
 export function SplashApp() {
   const avatarSrc = appIconUrl;
   const [text, setText] = useState('');
   const [switching, setSwitching] = useState(false);
-  const [symbol, setSymbol] = useState(YUAN_SYMBOLS.openZetcX);
-  const [accentColor, setAccentColor] = useState(YUAN_COLORS.openZetcX);
+  const [symbol, setSymbol] = useState(DEFAULT_VISUAL.symbol);
+  const [accentColor, setAccentColor] = useState(DEFAULT_VISUAL.accent);
   const linesRef = useRef<string[]>([]);
   const indexRef = useRef(0);
 
@@ -41,7 +33,7 @@ export function SplashApp() {
     (async () => {
       let locale = 'zh';
       let name = DEFAULT_NAME;
-      let yuan = 'openZetcX';
+      let yuan = 'hanako';
 
       try {
         const hana = window.hana;
@@ -51,8 +43,9 @@ export function SplashApp() {
         if (splashInfo?.locale?.startsWith('en')) locale = 'en';
         if (splashInfo?.yuan) yuan = splashInfo.yuan;
 
-        setSymbol(YUAN_SYMBOLS[yuan] || YUAN_SYMBOLS.openZetcX);
-        setAccentColor(YUAN_COLORS[yuan] || YUAN_COLORS.openZetcX);
+        const visual = getYuanVisual(yuan);
+        setSymbol(visual.symbol);
+        setAccentColor(visual.accent);
       } catch {}
 
       // 安装模式：固定文案，不进轮播

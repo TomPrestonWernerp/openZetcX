@@ -77,7 +77,7 @@ Current boundaries: iframe UI is the stable extension surface. Native renderer c
 9. If the user wants publication, choose one channel:
    - local debug: keep source local and install through the dev loop;
    - human review bundle: create zip, README, manifest, screenshots, and sha256 for email/group/issue review;
-   - official OH-Plugins release: prepare catalog entry and release zip, then run privacy-push before any remote push.
+   - project marketplace release: prepare a `marketplace.json` entry and release zip, then run privacy-push before any remote push.
 10. Run focused verification. When editing this skill, at minimum validate the skill and run the scaffold script against a temp directory.
 
 ## Scaffold Commands
@@ -127,12 +127,17 @@ python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "Jimeng Pro
 
 ## Marketplace Rules
 
-- Marketplace metadata lives in the `OH-Plugins` repository, not inside `project-hana`.
-- Official source plugins may live in `OH-Plugins/official-plugins/<plugin-id>/` with a matching `plugins/<plugin-id>.json`.
+- Marketplace metadata lives in this project's `marketplace.json`.
+- Source plugins may live in this repository with matching `marketplace.json` entries.
 - Each marketplace entry needs one README source: `readme`, `readmePath`, or `readmeUrl`. Use `readmePath` only for local file marketplaces; use inline `readme` or HTTPS `readmeUrl` for URL marketplaces.
+- Prefer `versions[]` once a plugin has more than one release line. Each version item declares `version`, `compatibility.minAppVersion`, and its own `distribution`.
+- For a single release, root `version`, `compatibility`, and `distribution` remain valid; Hana normalizes them into a single version entry.
+- Hana selects the highest SemVer version compatible with the current app and exposes update, reinstall, incompatible, and downgrade states to the UI.
+- If the selected compatible version is lower than the installed version, install requires explicit downgrade confirmation with `allowDowngrade: true`.
+- Release installs are backed up before replacement and rolled back when the new plugin fails to load.
 - Local file marketplaces can install `distribution.kind = "source"` entries because paths resolve on disk.
 - URL marketplaces browse entries, show README content, and install release packages by downloading the zip and verifying `sha256`.
-- Before pushing `OH-Plugins`, run privacy-push and wait for explicit user confirmation.
+- Before pushing marketplace changes, run privacy-push and wait for explicit user confirmation.
 
 ## UI Rules
 

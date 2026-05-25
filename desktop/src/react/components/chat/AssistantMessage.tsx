@@ -11,16 +11,22 @@ import { PluginCardBlock } from './PluginCardBlock';
 import { SubagentCard } from './SubagentCard';
 import { SettingsConfirmCard } from './SettingsConfirmCard';
 import { MessageActions } from './MessageActions';
+import { MessageFooterActions, formatMessageTime, type MessageFooterAction } from './MessageFooterActions';
 import { BLOCK_RENDERERS } from './block-renderers';
 import { FileOutputActions } from './FileOutputActions';
 const lazyScreenshot = () => import('../../utils/screenshot').then(m => m.takeScreenshot);
 import type { ChatMessage, ContentBlock } from '../../stores/chat-types';
 import { useStore } from '../../stores';
+import { selectSessionFiles } from '../../stores/selectors/file-refs';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
 import { openFilePreview, openSkillPreview } from '../../utils/file-preview';
 import { openMediaViewerForRef } from '../../utils/open-media-viewer';
 import { buildFileRefId, isImageOrSvgExt } from '../../utils/file-kind';
+import { resolveServerConnection } from '../../services/server-connection';
+import { resolveFileRefUrl } from '../../services/resource-url';
+import type { FileRef } from '../../types/file-ref';
 import { openPreview } from '../../stores/preview-actions';
+import { replayLatestUserMessage } from '../../stores/message-turn-actions';
 import { selectIsStreamingSession, selectSelectedIdsBySession } from '../../stores/session-selectors';
 import { extractSelectedTexts } from '../../utils/message-text';
 import { AgentAvatar, resolveAgentDisplayInfo } from '../../utils/agent-display';
@@ -34,16 +40,28 @@ interface Props {
   sessionPath: string;
   agentId?: string | null;
   readOnly?: boolean;
+  isLatestAssistantMessage?: boolean;
+  retrySourceMessage?: ChatMessage | null;
   messageRef?: (element: HTMLDivElement | null) => void;
 }
 
-export const AssistantMessage = memo(function AssistantMessage({ message, showAvatar, sessionPath, agentId, readOnly = false, messageRef }: Props) {
+export const AssistantMessage = memo(function AssistantMessage({
+  message,
+  showAvatar,
+  sessionPath,
+  agentId,
+  readOnly = false,
+  isLatestAssistantMessage = false,
+  retrySourceMessage = null,
+  messageRef,
+}: Props) {
   const agents = useStore(s => s.agents);
   const globalAgentName = useStore(s => s.agentName) || 'openZetcX';
   const globalYuan = useStore(s => s.agentYuan) || 'openZetcX';
   const isStreaming = useStore(s => selectIsStreamingSession(s, sessionPath));
   const selectedIds = useStore(s => selectSelectedIdsBySession(s, sessionPath));
   const isSelected = selectedIds.includes(message.id);
+  const t = window.t ?? ((p: string) => p);
 
   // Resolve agent identity from agentId prop; fall back to global values
   const displayInfo = resolveAgentDisplayInfo({
@@ -61,6 +79,7 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
   );
 
   const [copied, setCopied] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const handleCopy = useCallback(() => {
     const ids = selectSelectedIdsBySession(useStore.getState(), sessionPath);
     let text: string;
@@ -87,6 +106,28 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
     const fn = await lazyScreenshot();
     fn(message.id, sessionPath);
   }, [message.id, sessionPath]);
+
+  const handleRegenerate = useCallback(async () => {
+    if (!retrySourceMessage || retrying || isStreaming) return;
+    setRetrying(true);
+    try {
+      await replayLatestUserMessage(sessionPath, retrySourceMessage);
+    } finally {
+      setRetrying(false);
+    }
+  }, [isStreaming, retrying, retrySourceMessage, sessionPath]);
+
+  const canShowCompletionFooter = !readOnly && isLatestAssistantMessage && !!retrySourceMessage && !isStreaming;
+  const timeText = formatMessageTime(message.timestamp);
+  const footerActions: MessageFooterAction[] = useMemo(() => [
+    {
+      id: 'regenerate',
+      title: t('common.regenerate'),
+      icon: <RegenerateIcon />,
+      onClick: () => { void handleRegenerate(); },
+      disabled: retrying || isStreaming,
+    },
+  ], [handleRegenerate, isStreaming, retrying, t]);
 
   return (
     <div className={`${styles.messageGroup} ${styles.messageGroupAssistant}${isSelected ? ` ${styles.messageGroupSelected}` : ''}`}
@@ -127,9 +168,27 @@ export const AssistantMessage = memo(function AssistantMessage({ message, showAv
           isStreaming={isStreaming}
         />
       )}
+      {canShowCompletionFooter && (
+        <MessageFooterActions
+          align="left"
+          visible
+          timeText={timeText}
+          actions={footerActions}
+          testId="assistant-completion-actions"
+        />
+      )}
     </div>
   );
 });
+
+function RegenerateIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M21 12a9 9 0 1 1-2.64-6.36" />
+      <path d="M21 3v6h-6" />
+    </svg>
+  );
+}
 
 // ── ContentBlock 分发 ──
 
@@ -198,9 +257,30 @@ interface FileBlockCtx {
   blockIdx: number;
 }
 
-const ImageOutputCard = memo(function ImageOutputCard({ filePath, label, ext, status, ctx }: { filePath: string; label: string; ext: string; status?: string; ctx: FileBlockCtx }) {
+const ImageOutputCard = memo(function ImageOutputCard({ fileId, filePath, label, ext, status, ctx }: { fileId?: string; filePath: string; label: string; ext: string; status?: string; ctx: FileBlockCtx }) {
   const [failed, setFailed] = useState(false);
   const displayName = label || filePath.split('/').pop() || filePath;
+  const imageSrc = useStore(useCallback((state) => {
+    const files = selectSessionFiles(state, ctx.sessionPath);
+    const ref = files.find(file => (fileId && file.fileId === fileId) || file.path === filePath)
+      ?? buildFallbackSessionFileRef({ fileId, filePath, label: displayName, ext, kind: ext.toLowerCase() === 'svg' ? 'svg' : 'image', ctx });
+    try {
+      return resolveFileRefUrl(ref, {
+        connection: resolveServerConnection(state),
+        platform: window.platform,
+      }).url;
+    } catch {
+      return '';
+    }
+  }, [ctx, displayName, ext, fileId, filePath]));
+  const downloadUrl = useSessionFileDownloadUrl({
+    fileId,
+    filePath,
+    label: displayName,
+    ext,
+    kind: ext.toLowerCase() === 'svg' ? 'svg' : 'image',
+    ctx,
+  });
 
   if (status === 'expired') return <FileOutputCard filePath={filePath} label={label} ext={ext} status={status} ctx={ctx} />;
   if (failed) return <FileOutputCard filePath={filePath} label={label} ext={ext} status={status} ctx={ctx} />;
@@ -212,12 +292,25 @@ const ImageOutputCard = memo(function ImageOutputCard({ filePath, label, ext, st
         origin: 'session',
         sessionPath: ctx.sessionPath,
         messageId: ctx.messageId,
+        fileId,
         blockIdx: ctx.blockIdx,
       })}
       style={{ cursor: 'pointer' }}
     >
+      {downloadUrl && (
+        <a
+          className={styles.imageOutputDownloadButton}
+          href={downloadUrl}
+          download={displayName}
+          aria-label={`${window.t('chat.fileActions.downloadToDevice')} ${displayName}`}
+          title={window.t('chat.fileActions.downloadToDevice')}
+          onClick={(event) => event.stopPropagation()}
+        >
+          <DownloadGlyph />
+        </a>
+      )}
       <img
-        src={window.platform?.getFileUrl?.(filePath) ?? ''}
+        src={imageSrc}
         alt={displayName}
         className={styles.imageOutputPreview}
         onError={() => setFailed(true)}
@@ -227,20 +320,73 @@ const ImageOutputCard = memo(function ImageOutputCard({ filePath, label, ext, st
   );
 });
 
-const FileOutputCard = memo(function FileOutputCard({ filePath, label, ext, status, ctx }: { filePath: string; label: string; ext: string; status?: string; ctx: FileBlockCtx }) {
+function DownloadGlyph() {
+  return (
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M12 3v12" />
+      <path d="M7 10l5 5 5-5" />
+      <path d="M5 21h14" />
+    </svg>
+  );
+}
+
+function buildFallbackSessionFileRef({
+  fileId,
+  filePath,
+  label,
+  ext,
+  kind,
+  ctx,
+}: {
+  fileId?: string;
+  filePath: string;
+  label: string;
+  ext: string;
+  kind: FileRef['kind'];
+  ctx: FileBlockCtx;
+}): FileRef {
+  return {
+    id: buildFileRefId({
+      source: 'session-block-file',
+      sessionPath: ctx.sessionPath,
+      messageId: ctx.messageId,
+      blockIdx: ctx.blockIdx,
+      path: filePath,
+    }),
+    fileId,
+    kind,
+    source: 'session-block-file',
+    name: label,
+    path: filePath,
+    ext,
+    sessionMessageId: ctx.messageId,
+    sessionBlockIdx: ctx.blockIdx,
+  };
+}
+
+const FileOutputCard = memo(function FileOutputCard({ fileId, filePath, label, ext, status, ctx }: { fileId?: string; filePath: string; label: string; ext: string; status?: string; ctx: FileBlockCtx }) {
   const expired = status === 'expired';
   const expiredLabel = window.t('chat.fileExpired');
+  const displayName = label || filePath.split('/').pop() || filePath;
+  const downloadUrl = useSessionFileDownloadUrl({
+    fileId,
+    filePath,
+    label: displayName,
+    ext,
+    kind: 'other',
+    ctx,
+  });
   const handlePreview = () => {
     if (expired) return;
     openFilePreview(filePath, label, ext, {
       origin: 'session',
       sessionPath: ctx.sessionPath,
       messageId: ctx.messageId,
+      fileId,
       blockIdx: ctx.blockIdx,
     });
   };
 
-  const displayName = label || filePath.split('/').pop() || filePath;
   const typeLabel = expired ? expiredLabel : (EXT_LABELS[ext] || ext.toUpperCase());
 
   return (
@@ -263,11 +409,50 @@ const FileOutputCard = memo(function FileOutputCard({ filePath, label, ext, stat
         </div>
       </div>
       {!expired && (
-        <FileOutputActions filePath={filePath} displayName={displayName} />
+        <FileOutputActions
+          filePath={filePath}
+          displayName={displayName}
+          downloadUrl={downloadUrl}
+          downloadName={displayName}
+        />
       )}
     </div>
   );
 });
+
+function useSessionFileDownloadUrl({
+  fileId,
+  filePath,
+  label,
+  ext,
+  kind,
+  ctx,
+}: {
+  fileId?: string;
+  filePath: string;
+  label: string;
+  ext: string;
+  kind: FileRef['kind'];
+  ctx: FileBlockCtx;
+}): string | null {
+  return useStore(useCallback((state) => {
+    const files = selectSessionFiles(state, ctx.sessionPath);
+    const ref = files.find(file => (fileId && file.fileId === fileId) || file.path === filePath)
+      ?? buildFallbackSessionFileRef({ fileId, filePath, label, ext, kind, ctx });
+    if (ref.status === 'expired') return null;
+    try {
+      const resolved = resolveFileRefUrl(ref, {
+        connection: resolveServerConnection(state),
+        platform: typeof window !== 'undefined' ? window.platform : null,
+        preferLocalFile: false,
+      });
+      if (resolved.mode === 'local-file') return null;
+      return resolved.url;
+    } catch {
+      return null;
+    }
+  }, [ctx, ext, fileId, filePath, kind, label]));
+}
 
 const FileBlock = memo(function FileBlock({ block, sessionPath, messageId, blockIdx }: {
   block: any;
@@ -278,8 +463,8 @@ const FileBlock = memo(function FileBlock({ block, sessionPath, messageId, block
   const ctx: FileBlockCtx = { sessionPath, messageId, blockIdx };
   // 扩展名识别统一走中心表（inferKindByExt via isImageOrSvgExt）
   return isImageOrSvgExt(block.ext)
-    ? <ImageOutputCard filePath={block.filePath} label={block.label} ext={block.ext} status={block.status} ctx={ctx} />
-    : <FileOutputCard filePath={block.filePath} label={block.label} ext={block.ext} status={block.status} ctx={ctx} />;
+    ? <ImageOutputCard fileId={block.fileId} filePath={block.filePath} label={block.label} ext={block.ext} status={block.status} ctx={ctx} />
+    : <FileOutputCard fileId={block.fileId} filePath={block.filePath} label={block.label} ext={block.ext} status={block.status} ctx={ctx} />;
 });
 
 // COMPAT(create_artifact, remove no earlier than v0.133):

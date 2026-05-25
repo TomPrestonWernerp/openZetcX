@@ -2,7 +2,7 @@
  * FloatPreviewCard — 侧边栏折叠时的浮动预览卡片
  *
  * 左侧：session 列表 + 新建聊天 + 设置按钮
- * 右侧：desk 文件列表 + 笺编辑区
+ * 右侧：desk 文件列表 + 便签编辑区
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
@@ -158,7 +158,7 @@ function SessionAvatar({ sess, agents, agentYuan }: { sess: any; agents: any[]; 
   );
 }
 
-// ── 右侧：Desk 文件列表 + 笺 ──
+// ── 右侧：Desk 文件列表 + 便签 ──
 
 function DeskListCard() {
   const deskFiles = useStore(s => s.deskFiles);

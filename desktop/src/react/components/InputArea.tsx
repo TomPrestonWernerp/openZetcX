@@ -5,7 +5,7 @@
  * 斜杠命令逻辑在 ./input/slash-commands.ts。
  */
 
-import { useState, useEffect, useRef, useCallback, useMemo, type Ref } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo, type ChangeEvent } from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor } from '@tiptap/core';
 import { useStore } from '../stores';
@@ -44,6 +44,7 @@ import {
   notifyTextModelVideoBlocked,
 } from '../utils/chat-image-send-preflight';
 import { openProviderModelSettings } from '../utils/model-settings-navigation';
+import { calculateInputCardBottomInset, parseCssPixels } from '../utils/input-card-layout';
 import {
   XING_PROMPT, executeDiary, executeCompact, buildSlashCommands, getSlashMatches,
   resolveSlashSubmitSelection,
@@ -86,10 +87,31 @@ function chatImageMimeTypeForName(name: string, fallback?: string): string {
   return mimeMap[ext] || 'image/png';
 }
 
+async function readFileAsBase64(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onerror = () => reject(reader.error || new Error('file read failed'));
+    reader.onload = () => {
+      const value = typeof reader.result === 'string' ? reader.result : '';
+      const comma = value.indexOf(',');
+      resolve(comma >= 0 ? value.slice(comma + 1) : value);
+    };
+    reader.readAsDataURL(file);
+  });
+}
+
 interface FileMentionRange {
   from: number;
   to: number;
   query: string;
+}
+
+interface InputKeyEvent {
+  key: string;
+  shiftKey: boolean;
+  defaultPrevented?: boolean;
+  isComposing?: boolean;
+  preventDefault: () => void;
 }
 
 function findLatestInputSessionConfirmation(items: ChatListItem[] | undefined, confirmId?: string, pendingOnly?: boolean): SessionConfirmationBlock | null {
@@ -141,29 +163,28 @@ function editorHasInlineNode(editor: Editor | null, nodeType: string): boolean {
 
 export type { SlashItem };
 
-interface InputAreaProps {
-  cardRef?: Ref<HTMLDivElement>;
-}
-
 // ── 主组件 ──
 
-export function InputArea({ cardRef }: InputAreaProps) {
-  return <InputAreaInner cardRef={cardRef} />;
+export interface InputAreaProps {
+  surface?: 'desktop' | 'mobile';
 }
 
-interface InputAreaInnerProps {
-  cardRef?: Ref<HTMLDivElement>;
+export function InputArea({ surface = 'desktop' }: InputAreaProps = {}) {
+  return <InputAreaInner surface={surface} />;
 }
 
-function InputAreaInner({ cardRef }: InputAreaInnerProps) {
+function InputAreaInner({ surface }: Required<InputAreaProps>) {
   const { t, locale } = useI18n();
 
   // Zustand state
   const isStreaming = useStore(s => s.streamingSessions.includes(s.currentSessionPath || ''));
   const connected = useStore(s => s.connected);
   const pendingNewSession = useStore(s => s.pendingNewSession);
+  const pendingSessionSwitchPath = useStore(s => s.pendingSessionSwitchPath);
   const currentSessionPath = useStore(s => s.currentSessionPath);
   const compacting = useStore(s => currentSessionPath ? s.compactingSessions.includes(currentSessionPath) : false);
+  const screenshotBusy = useStore(s => s.screenshotTaskCount > 0);
+  const screenshotProgress = useStore(s => s.screenshotProgress);
   const inlineError = useStore(s => s.inlineErrors[s.currentSessionPath || ''] ?? null);
   const sessionTodos = useStore(s => (s.currentSessionPath && s.todosBySession[s.currentSessionPath]) || EMPTY_TODOS);
   const sessionFiles = useStore(s => (s.currentSessionPath ? selectSessionFiles(s, s.currentSessionPath) : EMPTY_FILE_REFS));
@@ -207,11 +228,16 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
 
   const isComposing = useRef(false);
   const pasteHandlerRef = useRef<(event: ClipboardEvent) => boolean>(() => false);
+  const keyDownHandlerRef = useRef<(event: KeyboardEvent) => boolean>(() => false);
+  const beforeInputHandlerRef = useRef<(event: InputEvent) => boolean>(() => false);
   const slashMenuRef = useRef<HTMLDivElement>(null);
   const fileMenuRef = useRef<HTMLDivElement>(null);
   const slashBtnRef = useRef<HTMLButtonElement>(null);
+  const browserFileInputRef = useRef<HTMLInputElement>(null);
   const slashDismissedTextRef = useRef<string | null>(null);
   const fileMentionSearchSeqRef = useRef(0);
+  const inputSurfaceRef = useRef<HTMLDivElement>(null);
+  const inputCardRef = useRef<HTMLDivElement>(null);
   const [inputText, setInputText] = useState('');
   const [fileMenuOpen, setFileMenuOpen] = useState(false);
   const [fileSelected, setFileSelected] = useState(0);
@@ -308,6 +334,9 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
 
   // ── TipTap editor ──
   const editor = useEditor({
+    // Mobile PWA cold starts can race editor DOM creation with the first render.
+    // Create the editor after mount there; keep desktop's immediate path unchanged.
+    immediatelyRender: surface !== 'mobile',
     extensions: createInputEditorExtensions(getEditorPlaceholder),
     editorProps: {
       attributes: {
@@ -316,8 +345,60 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
         spellcheck: 'false',
       },
       handlePaste: (_view, event) => pasteHandlerRef.current(event),
+      handleKeyDown: (_view, event) => keyDownHandlerRef.current(event),
+      handleDOMEvents: {
+        beforeinput: (_view, event) => beforeInputHandlerRef.current(event as InputEvent),
+      },
     },
   });
+
+  useEffect(() => {
+    const surface = inputSurfaceRef.current;
+    const card = inputCardRef.current;
+    const editorElement = editor?.view.dom;
+    const parent = card?.closest('.main-content') as HTMLElement | null;
+    if (!surface || !card || !editorElement || !parent) return;
+
+    const updateMetrics = () => {
+      const editorStyle = window.getComputedStyle(editorElement);
+      const editorFontSize = parseCssPixels(editorStyle.fontSize, 16);
+      const editorLineHeight = parseCssPixels(editorStyle.lineHeight, editorFontSize * 1.6);
+      const cardRect = card.getBoundingClientRect();
+      const surfaceRect = surface.getBoundingClientRect();
+      const cardHeight = cardRect.height || card.offsetHeight;
+      const editorHeight = editorElement.getBoundingClientRect().height || editorElement.offsetHeight;
+      const upperChromeHeight = Math.max(0, cardRect.top - surfaceRect.top);
+      const bottomInset = calculateInputCardBottomInset({
+        cardHeight,
+        editorHeight,
+        editorLineHeight,
+        upperChromeHeight,
+      });
+
+      parent.style.setProperty('--input-card-h', `${cardHeight}px`);
+      parent.style.setProperty('--input-card-bottom-inset', `${bottomInset}px`);
+    };
+
+    updateMetrics();
+
+    if (typeof ResizeObserver === 'undefined') {
+      return () => {
+        parent.style.removeProperty('--input-card-h');
+        parent.style.removeProperty('--input-card-bottom-inset');
+      };
+    }
+
+    const observer = new ResizeObserver(updateMetrics);
+    observer.observe(surface);
+    observer.observe(card);
+    observer.observe(editorElement);
+
+    return () => {
+      observer.disconnect();
+      parent.style.removeProperty('--input-card-h');
+      parent.style.removeProperty('--input-card-bottom-inset');
+    };
+  }, [editor]);
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
@@ -351,6 +432,7 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
     if (!ws || ws.readyState !== WebSocket.OPEN) return false;
     const _s = useStore.getState();
     if (_s.streamingSessions.includes(_s.currentSessionPath || '')) return false;
+    if (_s.pendingSessionSwitchPath) return false;
 
     if (pendingNewSession) {
       const ok = await ensureSession();
@@ -382,7 +464,7 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
     await executeCompact(setSlashBusy, () => { editor?.commands.clearContent(); }, setSlashMenuOpen)();
   }, [editor]);
 
-  const skillItems = useSkillSlashItems();
+  const skillItems = useSkillSlashItems({ enabled: surface !== 'mobile' });
 
   // 注：/stop /new /reset 仅走 bridge 平台（TG/Feishu/...）；桌面端有 GUI，菜单不暴露这些命令。
   // buildSlashCommands 第 5 参留作未来 web/mobile 端需要时再注入。后端 WS 通道 (type:'slash')
@@ -473,10 +555,61 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
     else openSlashMenu();
   }, [slashMenuOpen, dismissSlashMenu, openSlashMenu]);
 
+  const handleBrowserFileInputChange = useCallback(async (event: ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.currentTarget.files || []);
+    event.currentTarget.value = '';
+    if (files.length === 0) return;
+    if (useStore.getState().attachedFiles.length >= 9) return;
+
+    for (const file of files) {
+      if (useStore.getState().attachedFiles.length >= 9) break;
+      const mimeType = file.type || chatImageMimeTypeForName(file.name);
+      try {
+        const base64Data = await readFileAsBase64(file);
+        const res = await hanaFetch('/api/upload-blob', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name: file.name,
+            base64Data,
+            mimeType,
+            ...(useStore.getState().currentSessionPath ? { sessionPath: useStore.getState().currentSessionPath } : {}),
+          }),
+        });
+        const data = await res.json();
+        const upload = data?.uploads?.[0];
+        if (upload?.dest) {
+          addAttachedFile({
+            fileId: upload.fileId,
+            path: upload.dest,
+            name: upload.name || file.name,
+            isDirectory: false,
+            base64Data,
+            mimeType,
+          });
+        } else {
+          useStore.getState().addToast(t('error.uploadFailed'), 'error');
+          console.warn('[upload] browser file upload failed', upload?.error || data);
+        }
+      } catch (err) {
+        console.warn('[upload] browser file upload error', err);
+        useStore.getState().addToast(t('error.uploadFailed'), 'error');
+      }
+    }
+  }, [addAttachedFile, t]);
+
   const handleAttach = useCallback(async () => {
-    const paths = await window.platform?.selectFiles?.();
-    if (paths && paths.length > 0) await attachFilesFromPaths(paths);
-  }, []);
+    if (surface === 'mobile') {
+      browserFileInputRef.current?.click();
+      return;
+    }
+    if (typeof window.platform?.selectFiles === 'function') {
+      const paths = await window.platform.selectFiles();
+      if (paths && paths.length > 0) await attachFilesFromPaths(paths);
+      return;
+    }
+    browserFileInputRef.current?.click();
+  }, [surface]);
 
   // Sync editor text to React state (drives hasInput / canSend) + slash menu detection + draft save
   useEffect(() => {
@@ -564,7 +697,7 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
   const hasContent = inputText.trim().length > 0 || attachedFiles.length > 0 || docContextAttached || !!quotedSelection
     || editorHasInlineNode(editor, 'skillBadge')
     || editorHasInlineNode(editor, 'fileBadge');
-  const canSend = hasContent && connected && !isStreaming && !modelSwitching;
+  const canSend = hasContent && connected && !isStreaming && !modelSwitching && !pendingSessionSwitchPath;
 
   const loadVisionAuxiliaryConfig = useCallback(async () => {
     const res = await hanaFetch('/api/preferences/models');
@@ -638,7 +771,7 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
   // ── Load thinking level once server port is ready + listen for plan mode sync ──
   const activeServerConnection = useStore(s => s.activeServerConnection);
   useEffect(() => {
-    if (activeServerConnection) {
+    if (activeServerConnection && surface !== 'mobile') {
       fetchConfig()
         .then(d => { if (d.thinking_level) setThinkingLevel(d.thinking_level as ThinkingLevel); })
         .catch((err: unknown) => console.warn('[InputArea] load config failed', err));
@@ -650,7 +783,7 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
     };
     window.addEventListener('hana-plan-mode', handler);
     return () => window.removeEventListener('hana-plan-mode', handler);
-  }, [activeServerConnection, setThinkingLevel]);
+  }, [activeServerConnection, setThinkingLevel, surface]);
 
   // ── Handle slash selection (builtin vs skill) ──
   const handleSlashSelect = useCallback((item: SlashItem) => {
@@ -716,6 +849,7 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
     if (isStreaming) return;
     if (sending) return;
     if (modelSwitching) return;
+    if (useStore.getState().pendingSessionSwitchPath) return;
     setSending(true);
 
     try {
@@ -902,45 +1036,48 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
   }, [isStreaming]);
 
   // ── Key handler ──
-  const handleEditorKeyDown = useCallback((e: React.KeyboardEvent) => {
+  const handleEditorKeyDown = useCallback((e: InputKeyEvent): boolean => {
+    if (e.defaultPrevented) return false;
     if (fileMenuOpen && (fileMentionItems.length > 0 || fileMentionBusy)) {
       if (e.key === 'ArrowDown' && fileMentionItems.length > 0) {
         e.preventDefault();
         setFileSelected(i => (i + 1) % fileMentionItems.length);
-        return;
+        return true;
       }
       if (e.key === 'ArrowUp' && fileMentionItems.length > 0) {
         e.preventDefault();
         setFileSelected(i => (i - 1 + fileMentionItems.length) % fileMentionItems.length);
-        return;
+        return true;
       }
       if ((e.key === 'Tab' || e.key === 'Enter') && fileMentionItems.length > 0) {
         e.preventDefault();
         const item = fileMentionItems[fileSelected];
         if (item) handleFileMentionSelect(item);
-        return;
+        return true;
       }
       if (e.key === 'Escape') {
         e.preventDefault();
         setFileMenuOpen(false);
-        return;
+        return true;
       }
     }
     if (slashMenuOpen && filteredCommands.length > 0) {
-      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashSelected(i => (i + 1) % filteredCommands.length); return; }
-      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashSelected(i => (i - 1 + filteredCommands.length) % filteredCommands.length); return; }
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashSelected(i => (i + 1) % filteredCommands.length); return true; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashSelected(i => (i - 1 + filteredCommands.length) % filteredCommands.length); return true; }
       if (e.key === 'Tab' || e.key === 'Enter') {
         e.preventDefault();
         const cmd = filteredCommands[slashSelected] || filteredCommands[0];
         if (cmd) handleSlashSelect(cmd);
-        return;
+        return true;
       }
-      if (e.key === 'Escape') { e.preventDefault(); dismissSlashMenu(); return; }
+      if (e.key === 'Escape') { e.preventDefault(); dismissSlashMenu(); return true; }
     }
-    if (e.key === 'Enter' && !e.shiftKey && !isComposing.current) {
+    if (e.key === 'Enter' && !e.shiftKey && !isComposing.current && !e.isComposing) {
       e.preventDefault();
       if (isStreaming && (editor?.getText().trim())) handleSteer(); else handleSend();
+      return true;
     }
+    return false;
   }, [
     dismissSlashMenu,
     fileMentionBusy,
@@ -957,6 +1094,20 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
     slashMenuOpen,
     slashSelected,
   ]);
+
+  keyDownHandlerRef.current = handleEditorKeyDown as (event: KeyboardEvent) => boolean;
+  beforeInputHandlerRef.current = (event: InputEvent): boolean => {
+    if (surface !== 'mobile') return false;
+    if (event.defaultPrevented) return false;
+    if (event.inputType !== 'insertParagraph') return false;
+    return handleEditorKeyDown({
+      key: 'Enter',
+      shiftKey: false,
+      defaultPrevented: event.defaultPrevented,
+      isComposing: event.isComposing,
+      preventDefault: () => event.preventDefault(),
+    });
+  };
 
   const handleSlashResultClick = useCallback(() => {
     if (!slashResult?.deskDir) return;
@@ -985,12 +1136,24 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
   }, [addToast, completingTodos, currentSessionPath, sessionTodos.length]);
 
   return (
-    <>
+    <div
+      className={`${styles['input-surface']}${surface === 'mobile' ? ` ${styles['input-surface-mobile']}` : ''}`}
+      ref={inputSurfaceRef}
+    >
       <InputStatusBars
         slashBusy={slashBusy}
         slashBusyLabel={slashCommands.find(c => c.name === slashBusy)?.busyLabel || t('common.executing')}
         compacting={compacting}
         compactingLabel={t('chat.compacting')}
+        screenshotBusy={screenshotBusy}
+        screenshotLabel={t('common.screenshotInProgress')}
+        screenshotPageLabel={screenshotProgress && screenshotProgress.totalPages > 0
+          ? t('common.screenshotProgressPage', {
+            current: screenshotProgress.currentPage,
+            total: screenshotProgress.totalPages,
+          })
+          : null}
+        screenshotProgress={screenshotProgress}
         inlineError={inlineError}
         slashResult={slashResult}
         onResultClick={slashResult?.deskDir ? handleSlashResultClick : undefined}
@@ -1027,9 +1190,19 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
             exiting={sessionConfirmationExiting}
           />
         )}
-        <div className={styles['input-wrapper']} ref={cardRef}>
+        <div className={styles['input-wrapper']} ref={inputCardRef}>
+          <input
+            ref={browserFileInputRef}
+            className={styles['browser-file-input']}
+            type="file"
+            multiple
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            onChange={handleBrowserFileInputChange}
+          />
           <div
-            onKeyDown={handleEditorKeyDown}
+            onKeyDown={(event) => {
+              if (!event.defaultPrevented) handleEditorKeyDown(event);
+            }}
             onCompositionStart={() => { isComposing.current = true; }}
             onCompositionEnd={() => { isComposing.current = false; }}
           >
@@ -1058,6 +1231,6 @@ function InputAreaInner({ cardRef }: InputAreaInnerProps) {
           />
         </div>
       </div>
-    </>
+    </div>
   );
 }

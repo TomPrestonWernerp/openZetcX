@@ -34,6 +34,7 @@ import {
   removeChannelMember,
   updateChannelMeta,
 } from "../../lib/channels/channel-store.js";
+import { extractMentionedAgentIds } from "../../lib/channels/channel-mentions.js";
 import { normalizeAgentPhoneToolMode } from "../../lib/conversations/agent-phone-session.js";
 import {
   DEFAULT_AGENT_PHONE_SETTINGS,
@@ -65,6 +66,28 @@ function readOptionalPositiveInt(value) {
   const num = Number(value);
   if (!Number.isFinite(num) || num <= 0) return null;
   return Math.floor(num);
+}
+
+function requestedAgentId(c) {
+  const value = c.req.query("agentId");
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function resolveConversationOwnerAgent(engine, c) {
+  if (requestedAgentId(c)) {
+    return resolveAgent(engine, c);
+  }
+
+  const primaryAgentId = engine.getPrimaryAgentId?.() || null;
+  if (!primaryAgentId) {
+    return resolveAgent(engine, c);
+  }
+
+  const agent = engine.getAgent(primaryAgentId);
+  if (!agent) {
+    throw new Error(`primary agent "${primaryAgentId}" not found`);
+  }
+  return agent;
 }
 
 function normalizePhoneSettingsPayload(body = {}) {
@@ -174,7 +197,7 @@ export function createChannelsRoute(engine, hub) {
 
   async function readConversationPhoneSettings(id, c) {
     if (id.startsWith("dm:")) {
-      const agent = resolveAgent(engine, c);
+      const agent = resolveConversationOwnerAgent(engine, c);
       const projection = readAgentPhoneProjection(getAgentPhoneProjectionPath(agent.agentDir, id));
       return {
         mode: normalizeAgentPhoneToolMode(projection.meta.toolMode),
@@ -209,7 +232,7 @@ export function createChannelsRoute(engine, hub) {
         err.status = 400;
         throw err;
       }
-      const agent = resolveAgent(engine, c);
+      const agent = resolveConversationOwnerAgent(engine, c);
       await updateAgentPhoneProjectionMeta({
         agentDir: agent.agentDir,
         agentId: agent.id,
@@ -525,23 +548,10 @@ export function createChannelsRoute(engine, hub) {
 
       debugLog()?.log("api", `POST /channels/${name}/messages`);
 
-      // 提取 @ 提及
-      const atMatches = body.match(/@(\S+)/g) || [];
-      const mentionedAgents = [];
-      if (atMatches.length > 0) {
-        const meta = getChannelMeta(filePath);
-        const channelMembers = Array.isArray(meta.members) ? meta.members : [];
-        const allAgents = engine.listAgents?.() || [];
-        for (const at of atMatches) {
-          const atName = at.slice(1);
-          const matched = allAgents.find(a =>
-            a.name === atName || a.id === atName
-          );
-          if (matched && channelMembers.includes(matched.id)) {
-            mentionedAgents.push(matched.id);
-          }
-        }
-      }
+      const mentionedAgents = extractMentionedAgentIds(body, {
+        channelMembers: getChannelMembers(filePath),
+        agents: engine.listAgents?.() || [],
+      });
 
       const triggerDelivery = hub.triggerChannelDelivery || hub.triggerChannelTriage;
       triggerDelivery.call(hub, name, { mentionedAgents })?.catch(err =>

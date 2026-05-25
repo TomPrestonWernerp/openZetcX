@@ -26,6 +26,7 @@ export class ModelManager {
    */
   constructor({ openZetcXHome }) {
     this._openZetcXHome = openZetcXHome;
+    this._hanakoHome = openZetcXHome;
     this._authStorage = null;
     this._modelRegistry = null;
     this._defaultModel = null;   // 设置页面选的，持久化，bridge 用这个

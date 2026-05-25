@@ -13,9 +13,11 @@
  * 产出结构：
  *   dist-server/{platform}-{arch}/
  *     hana-server             ← shell wrapper（设置 HANA_ROOT 并启动）
+ *     hana                    ← shell wrapper（server-first CLI）
  *     node                    ← Node.js runtime
  *     bundle/                 ← Vite bundle 产出
  *       index.js              ← 入口（~750KB）
+ *       cli.js                ← server-first CLI 入口
  *       chunks/               ← 按模块拆分的 chunk
  *         shared-XXXX.js
  *         core-XXXX.js
@@ -33,7 +35,9 @@
  *       ishiki-templates/
  *       public-ishiki-templates/
  *       yuan/
+ *     desktop/src/assets/     ← server 运行时读取的默认头像、角色卡背、Yuan 图标
  *     desktop/src/locales/    ← i18n 资源
+ *     desktop/dist-renderer/  ← PWA 静态入口和 hashed assets（/mobile/* 由 server 读取）
  *     skills2set/             ← 技能包
  *     package.json            ← external deps + version（node_modules 解析 + 运行时版本读取）
  *     package-lock.json       ← npm install 生成，记录 external 安装结果
@@ -48,6 +52,7 @@ import {
   buildExternalPackage,
   verifyExternalEntrypoints,
 } from "./build-server-deps.mjs";
+import { copyServerRuntimeAssets } from "./build-server-runtime-assets.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
@@ -137,6 +142,23 @@ function runWithTargetNode(cmd, opts = {}) {
   });
 }
 
+function ensureNodePtySpawnHelperExecutable(baseDir) {
+  if (isWin) return;
+  const nodePtyRoot = path.join(baseDir, "node_modules", "node-pty");
+  if (!fs.existsSync(nodePtyRoot)) return;
+  for (const helperPath of [
+    path.join(nodePtyRoot, "build", "Release", "spawn-helper"),
+    path.join(nodePtyRoot, "prebuilds", `${platform}-${arch}`, "spawn-helper"),
+  ]) {
+    if (!fs.existsSync(helperPath)) continue;
+    const mode = fs.statSync(helperPath).mode;
+    if ((mode & 0o111) === 0) {
+      fs.chmodSync(helperPath, mode | 0o755);
+      console.log(`[build-server] node-pty executable bit fixed: ${path.relative(baseDir, helperPath)}`);
+    }
+  }
+}
+
 // ── 2. Vite bundle ──
 // 用系统 Node 跑 Vite（构建时工具，不涉及 native addon ABI）
 // 产出到 dist-server-bundle/，然后复制到 outDir/bundle/
@@ -151,6 +173,16 @@ execSync("npx vite build --config vite.config.server.js", {
 const bundleOutDir = path.join(outDir, "bundle");
 fs.cpSync(viteBundleDir, bundleOutDir, { recursive: true });
 console.log("[build-server] Vite bundle copied to bundle/");
+
+console.log("[build-server] running CLI bundle...");
+execSync(
+  `npx esbuild "${path.join(ROOT, "cli", "entry.js")}" --bundle --platform=node --format=esm --target=node22 --external:ws --outfile="${path.join(bundleOutDir, "cli.js")}"`,
+  {
+    cwd: ROOT,
+    stdio: "inherit",
+  },
+);
+console.log("[build-server] CLI bundle copied to bundle/cli.js");
 
 fs.copyFileSync(path.join(ROOT, "server", "bootstrap.js"), path.join(outDir, "bootstrap.js"));
 console.log("[build-server] bootstrap copied");
@@ -218,11 +250,30 @@ if (fs.existsSync(themesSrc)) {
   console.log("[build-server]   desktop/src/themes/");
 }
 
+// 角色卡导入/导出预览由 server 读取默认头像、卡背和 Yuan 图标。
+// PWA /mobile/* 静态文件也由独立 server 进程读取。
+// 打包模式下 HANA_ROOT 指向 resources/server，不能依赖 renderer asar 里的 assets。
+for (const copiedAsset of copyServerRuntimeAssets({ rootDir: ROOT, outDir })) {
+  console.log(`[build-server]   ${copiedAsset}`);
+}
+
 // 系统插件（内嵌到 app，运行时 fromRoot("plugins") 读取）
 const pluginsSrc = path.join(ROOT, "plugins");
 if (fs.existsSync(pluginsSrc)) {
   fs.cpSync(pluginsSrc, path.join(outDir, "plugins"), { recursive: true });
   console.log("[build-server]   plugins/");
+}
+
+const marketplaceIndexSrc = path.join(ROOT, "marketplace.json");
+if (fs.existsSync(marketplaceIndexSrc)) {
+  fs.copyFileSync(marketplaceIndexSrc, path.join(outDir, "marketplace.json"));
+  console.log("[build-server]   marketplace.json");
+}
+
+const pluginMarketplaceSrc = path.join(ROOT, "plugin-marketplace");
+if (fs.existsSync(pluginMarketplaceSrc)) {
+  fs.cpSync(pluginMarketplaceSrc, path.join(outDir, "plugin-marketplace"), { recursive: true });
+  console.log("[build-server]   plugin-marketplace/");
 }
 
 console.log("[build-server] resource files copied");
@@ -284,6 +335,7 @@ fs.writeFileSync(
 // CI fresh install 把直接 external 依赖解析到尚未验证的新版本。
 console.log("[build-server] installing external dependencies...");
 runWithTargetNode(`"${cachedNpmCli}" install --omit=dev --no-audit --no-fund`);
+ensureNodePtySpawnHelperExecutable(outDir);
 
 // ── 5b. 验证所有 Vite external 在 node_modules 中可达 ──
 // 遍历 string 类型的 external，检查 node_modules 中是否存在。
@@ -463,6 +515,10 @@ if (isWin) {
     path.join(outDir, "hana-server.cmd"),
     '@echo off\r\nset "HANA_ROOT=%~dp0"\r\nset "HANA_SERVER_ENTRY=%~dp0bundle\\index.js"\r\n"%~dp0hana-server.exe" "%~dp0bootstrap.js" %*\r\n',
   );
+  fs.writeFileSync(
+    path.join(outDir, "hana.cmd"),
+    '@echo off\r\nset "HANA_ROOT=%~dp0"\r\nset "HANA_SERVER_ENTRY=%~dp0bundle\\index.js"\r\n"%~dp0hana-server.exe" "%~dp0bundle\\cli.js" %*\r\n',
+  );
 } else {
   const wrapper = path.join(outDir, "hana-server");
   fs.writeFileSync(wrapper, [
@@ -479,6 +535,17 @@ if (isWin) {
     "",
   ].join("\n"));
   fs.chmodSync(wrapper, 0o755);
+
+  const cliWrapper = path.join(outDir, "hana");
+  fs.writeFileSync(cliWrapper, [
+    "#!/bin/sh",
+    'DIR="$(cd "$(dirname "$0")" && pwd)"',
+    'export HANA_ROOT="$DIR"',
+    'export HANA_SERVER_ENTRY="$DIR/bundle/index.js"',
+    'exec "$DIR/node" "$DIR/bundle/cli.js" "$@"',
+    "",
+  ].join("\n"));
+  fs.chmodSync(cliWrapper, 0o755);
 }
 console.log("[build-server] wrapper created");
 

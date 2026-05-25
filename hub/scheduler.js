@@ -13,6 +13,8 @@ import { createHeartbeat, HEARTBEAT_ACTIVITY_DIR } from "../lib/desk/heartbeat.j
 import { createCronScheduler } from "../lib/desk/cron-scheduler.js";
 import { CronStore } from "../lib/desk/cron-store.js";
 import { getLocale } from "../server/i18n.js";
+import { createFreshCompactDailyScheduler } from "../lib/fresh-compact/daily-scheduler.js";
+import { FreshCompactMaintainer } from "./fresh-compact-maintainer.js";
 
 export class Scheduler {
   /**
@@ -24,6 +26,11 @@ export class Scheduler {
     this._heartbeats = new Map(); // agentId → heartbeat instance
     this._agentCrons = new Map(); // agentId → CronScheduler
     this._executingJobs = new Map(); // jobId → AbortController（per-job 锁 + abort 控制）
+    this._freshCompactMaintainer = new FreshCompactMaintainer({ hub });
+    this._freshCompactScheduler = createFreshCompactDailyScheduler({
+      runDaily: (opts) => this._freshCompactMaintainer.runDaily(opts),
+      warn: (msg) => console.warn(msg),
+    });
   }
 
   /** @returns {import('../core/engine.js').HanaEngine} */
@@ -46,9 +53,11 @@ export class Scheduler {
   start() {
     this.startHeartbeat();
     this._startAllCrons();
+    this._freshCompactScheduler.start();
   }
 
   async stop() {
+    this._freshCompactScheduler.stop();
     await this.stopHeartbeat();
     for (const sched of this._agentCrons.values()) {
       await sched.stop();
@@ -93,12 +102,11 @@ export class Scheduler {
 
   _startAgentHeartbeat(agentId, agent) {
     if (this._heartbeats.has(agentId)) return; // 幂等
-    if (!agent.deskManager || !agent.cronStore) return;
 
     const engine = this._engine;
     const hbInterval = agent.config?.desk?.heartbeat_interval;
     const masterEnabled = engine.getHeartbeatMaster() !== false;
-    const hbEnabled = masterEnabled && (agent.config?.desk?.heartbeat_enabled !== false);
+    const hbEnabled = masterEnabled && (agent.config?.desk?.heartbeat_enabled === true);
     // per-agent workspace（fallback: 主 agent → ~/Desktop）
     const getWorkspace = () => engine.getHomeCwd(agentId);
     const hb = createHeartbeat({
@@ -126,13 +134,13 @@ export class Scheduler {
       getAgentName: () => agent.agentName,
       registryPath: path.join(agent.deskDir, "jian-registry.json"),
       overwatchPath: path.join(agent.deskDir, "overwatch.md"),
-      // 巡检/笺巡检不传 withMemory：executeIsolated 默认走 agent.systemPrompt，
+      // 巡检/便签巡检不传 withMemory：executeIsolated 默认走 agent.systemPrompt，
       // 而该 cache 始终按 master 开关构建，与 per-session 开关解耦。
       // 用户关 master 时自动不带记忆；只关某个 session 的开关不影响这里。
       onBeat: (prompt) => this._executeActivityForAgent(agentId, prompt, "heartbeat", null, {}),
       onJianBeat: (prompt, cwd) => {
         const isZh = getLocale().startsWith("zh");
-        this._executeActivityForAgent(agentId, prompt, "heartbeat", `${isZh ? "笺" : "jian"}:${path.basename(cwd)}`, { cwd });
+        this._executeActivityForAgent(agentId, prompt, "heartbeat", `${isZh ? "便签" : "jian"}:${path.basename(cwd)}`, { cwd });
       },
       intervalMinutes: hbInterval,
       emitDevLog: (text, level) => engine.emitDevLog(text, level),
@@ -249,6 +257,10 @@ export class Scheduler {
    */
   async _executeActivityForAgent(agentId, prompt, type, label, opts = {}) {
     const engine = this._engine;
+    await engine.ensureAgentRuntime?.(agentId, {
+      priority: "background",
+      reason: type,
+    });
     const agentDir = path.join(engine.agentsDir, agentId);
     const activityDir = path.join(agentDir, "activity");
     const startedAt = Date.now();

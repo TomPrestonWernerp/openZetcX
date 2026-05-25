@@ -1,0 +1,9 @@
+{
+  "manifestVersion": 1,
+  "id": "coze-kb-search",
+  "name": "Coze KB Search",
+  "version": "0.1.0",
+  "description": "openZetcX skill plugin example for searching an environmental assessment knowledge base through a Coze workflow.",
+  "minAppVersion": "0.3.0",
+  "trust": "restricted"
+}

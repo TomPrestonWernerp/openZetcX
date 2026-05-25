@@ -3,7 +3,7 @@
  * 独立于主窗口 store，设置窗口有自己的 BrowserWindow + JS context
  */
 import { create } from 'zustand';
-import type { ServerConnection } from '../services/server-connection';
+import type { ServerConnection, ServerConnectionRegistry } from '../services/server-connection';
 
 export interface Agent {
   id: string;
@@ -40,6 +40,7 @@ export interface ProviderSummary {
   logged_in?: boolean;
   supports_oauth: boolean;
   is_coding_plan?: boolean;
+  is_configured?: boolean;
   can_delete: boolean;
   config_status?: 'ok' | 'needs_setup' | 'invalid';
   config_error?: string | null;
@@ -58,6 +59,8 @@ export interface SettingsState {
   // connection
   serverPort: number | null;
   serverToken: string | null;
+  serverConnections: ServerConnectionRegistry;
+  activeServerConnectionId: string | null;
   activeServerConnection: ServerConnection | null;
 
   // agents
@@ -113,6 +116,8 @@ export const useSettingsStore = create<SettingsStore>()((set, get) => ({
   // connection
   serverPort: null,
   serverToken: null,
+  serverConnections: {},
+  activeServerConnectionId: null,
   activeServerConnection: null,
 
   // agents

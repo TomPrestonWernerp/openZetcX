@@ -8,7 +8,7 @@
 import { memo, useRef, useEffect, useLayoutEffect } from 'react';
 import { injectCopyButtons } from '../../utils/format';
 import { useMermaidDiagrams } from '../../hooks/use-mermaid-diagrams';
-import { splitGraphemes } from '../../hooks/use-typewriter-text';
+import { splitGraphemes } from '../../utils/grapheme';
 import styles from './Chat.module.css';
 
 interface Props {
@@ -64,7 +64,7 @@ function applyTailFade(root: HTMLElement, count: number): void {
     const fragment = document.createDocumentFragment();
     if (before) fragment.appendChild(document.createTextNode(before));
     for (const segment of tail) {
-      // eslint-disable-next-line no-restricted-syntax -- This annotates parsed markdown text nodes after render.
+      // eslint-disable-next-line no-restricted-syntax -- post-render markdown stream tail decoration needs DOM text-node surgery
       const span = document.createElement('span');
       span.className = styles.streamTailChar;
       span.dataset.streamTailChar = 'true';

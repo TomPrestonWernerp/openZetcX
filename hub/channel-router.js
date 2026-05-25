@@ -1,7 +1,7 @@
 /**
- * ChannelRouter — 集群调度（从 engine.js 搬出）
+ * ChannelRouter — 频道调度（从 engine.js 搬出）
  *
- * 集群 = 内部 Channel，和 Telegram/飞书一样通过 Hub 路由。
+ * 频道 = 内部 Channel，和 Telegram/飞书一样通过 Hub 路由。
  * 包装 channel-ticker（不改 ticker，只提供回调）。
  *
  * 搬出的方法：
@@ -18,6 +18,7 @@ import path from "path";
 import { createChannelTicker } from "../lib/channels/channel-ticker.js";
 import { Type } from "../lib/pi-sdk/index.js";
 import { appendMessage, formatMessagesForLLM, getChannelMeta, getRecentMessages } from "../lib/channels/channel-store.js";
+import { extractMentionedAgentIds } from "../lib/channels/channel-mentions.js";
 import { loadConfig } from "../lib/memory/config-loader.js";
 import { callText } from "../core/llm-client.js";
 import { runAgentPhoneSession } from "./agent-executor.js";
@@ -355,9 +356,36 @@ export class ChannelRouter {
     this._ticker?.refreshSchedule?.();
   }
 
+  _listMentionableAgents() {
+    if (typeof this._engine.listAgents === "function") {
+      return this._engine.listAgents();
+    }
+    return this.getAgentOrder().map((id) => {
+      const agent = this._getAgentInstance(id);
+      if (agent?.agentName) return { id, name: agent.agentName, agentName: agent.agentName };
+      try {
+        const cfg = loadConfig(path.join(this._engine.agentsDir, id, "config.yaml"));
+        return { id, name: cfg?.agent?.name || id };
+      } catch {
+        return { id, name: id };
+      }
+    });
+  }
+
+  _extractMentionedAgents(channelName, message) {
+    const text = typeof message === "string" ? message : message?.body;
+    if (!text) return [];
+    const channelFile = path.join(this._engine.channelsDir || "", `${channelName}.md`);
+    const meta = getChannelMeta(channelFile);
+    return extractMentionedAgentIds(text, {
+      channelMembers: Array.isArray(meta.members) ? meta.members : [],
+      agents: this._listMentionableAgents(),
+    });
+  }
+
   /**
-   * 注入集群 post 回调到当前 agent
-   * agent 用 channel tool 发消息后，触发其他 agent 的 triage
+   * 注入频道 post 回调到当前 agent
+   * agent 用 channel tool 发消息后，触发其他 agent 的手机送达
    */
   setupPostHandler() {
     for (const [, agent] of this._engine.agents || []) {
@@ -371,16 +399,18 @@ export class ChannelRouter {
             message,
           }, null);
         }
-        this.triggerImmediate(channelName)?.catch(err =>
+        const mentionedAgents = this._extractMentionedAgents(channelName, message);
+        const opts = mentionedAgents.length > 0 ? { mentionedAgents } : undefined;
+        this.triggerImmediate(channelName, opts)?.catch(err =>
           console.error(`[channel] agent post delivery 失败: ${err.message}`)
         );
       });
     }
   }
 
-  // ──────────── 集群 Agent 顺序 ────────────
+  // ──────────── 频道 Agent 顺序 ────────────
 
-  /** 获取集群轮转候选 agent 列表；具体集群 membership 由 channel frontmatter 决定 */
+  /** 获取频道轮转候选 agent 列表；具体频道 membership 由 channel frontmatter 决定 */
   getAgentOrder() {
     const now = Date.now();
     if (this._agentOrderCache && now - this._agentOrderCache.ts < ChannelRouter._AGENT_ORDER_TTL) {
@@ -405,10 +435,15 @@ export class ChannelRouter {
   // ──────────── Phone Delivery + Reply ────────────
 
   /**
-   * 集群检查回调：triage → 两轮 Agent Session → 写入回复
+   * 频道检查回调：未读消息送达 → Agent Phone Session → 频道工具写入或 pass
    * 从 engine._executeChannelCheck 搬入
    */
-  async _executeCheck(agentId, channelName, newMessages, _allChannelUpdates, { signal, proactive = false } = {}) {
+  async _executeCheck(agentId, channelName, newMessages, _allChannelUpdates, {
+    signal,
+    proactive = false,
+    mentionedAgents = [],
+    mentionTargeted = false,
+  } = {}) {
     const engine = this._engine;
     const msgText = formatMessagesForLLM(newMessages);
     const isZh = getLocale().startsWith("zh");
@@ -439,6 +474,8 @@ export class ChannelRouter {
         signal,
         messageCount: newMessages.length,
         proactive,
+        mentionedAgents,
+        mentionTargeted,
       });
 
       if (decision?.replied) {
@@ -508,10 +545,66 @@ export class ChannelRouter {
   /**
    * 将未读群聊消息送入 Agent Phone session。频道写入只能由 channel_reply 工具完成。
    */
-  async _executeReply(agentId, channelName, msgText, { signal, messageCount = null, proactive = false } = {}) {
+  _formatMentionGuidance(agentId, mentionedAgents, mentionTargeted, isZh) {
+    const ids = Array.from(new Set(
+      Array.isArray(mentionedAgents)
+        ? mentionedAgents.filter((id) => typeof id === "string" && id.trim()).map((id) => id.trim())
+        : [],
+    ));
+    if (ids.length === 0) return "";
+
+    const names = ids
+      .map((id) => this._resolveChannelMemorySenderName(id, isZh))
+      .filter(Boolean)
+      .join(isZh ? "、" : ", ");
+    if (mentionTargeted || ids.includes(agentId)) {
+      return isZh
+        ? [
+          `- 这轮消息明确 @ 了你（${names || agentId}），你是本轮优先被提醒的成员`,
+          "- 请判断是否需要回应；如果只是确认收到或暂时不需要发言，也可以调用 channel_pass",
+        ].join("\n")
+        : [
+          `- This turn explicitly @mentioned you (${names || agentId}); you were prioritized for this phone check`,
+          "- Decide whether a reply is useful; if there is nothing to add, call channel_pass",
+        ].join("\n");
+    }
+
+    return isZh
+      ? [
+        `- 这轮消息明确 @ 了 ${names || ids.join("、")}，你也能看到这段频道 Truth，但不要抢答`,
+        "- 除非你确实需要补充、纠错或推进话题，否则调用 channel_pass",
+      ].join("\n")
+      : [
+        `- This turn explicitly @mentioned ${names || ids.join(", ")}. You can still see this channel Truth, but do not steal the reply`,
+        "- Unless you truly need to add context, correct something, or move the topic forward, call channel_pass",
+      ].join("\n");
+  }
+
+  _formatChannelBehaviorGuidance(agentId, mentionedAgents, mentionTargeted, isZh) {
+    const mentionGuidance = this._formatMentionGuidance(agentId, mentionedAgents, mentionTargeted, isZh);
+    if (mentionGuidance) return mentionGuidance;
+    return isZh
+      ? [
+        "- 你可以因为被问到、被提到、想补充、想推动话题、表达情绪、主动开启话题或觉得有价值而发言",
+        "- 不需要只在事情与你直接相关时才发言",
+      ].join("\n")
+      : [
+        "- You may post because you were asked, mentioned, have something useful to add, want to move the topic, want to start a topic, or feel it is worth saying",
+        "- You do not need the topic to be directly about you",
+      ].join("\n");
+  }
+
+  async _executeReply(agentId, channelName, msgText, {
+    signal,
+    messageCount = null,
+    proactive = false,
+    mentionedAgents = [],
+    mentionTargeted = false,
+  } = {}) {
     const isZh = getLocale().startsWith("zh");
     const phoneSettings = this._resolveChannelPhoneSettings(channelName);
     const promptGuidance = this._formatPhonePromptGuidance(agentId, phoneSettings, isZh);
+    const behaviorGuidance = this._formatChannelBehaviorGuidance(agentId, mentionedAgents, mentionTargeted, isZh);
     const zhIntro = proactive
       ? `你的手机收到了 #${channelName} 的频道提醒。\n\n`
         + `以下是最近的频道内容，来源是频道聊天记录 Truth，不是用户单独发给你的请求，也不一定是新消息：\n\n`
@@ -532,8 +625,7 @@ export class ChannelRouter {
             ? zhIntro
               + `${msgText || "（没有新消息）"}\n\n`
               + `请像群聊成员一样阅读并行动：\n`
-              + `- 你可以因为被问到、被提到、想补充、想推动话题、表达情绪、主动开启话题或觉得有价值而发言\n`
-              + `- 不需要只在事情与你直接相关时才发言\n`
+              + `${behaviorGuidance}\n`
               + `- 需要旧上下文时，用 channel_read_context 读取频道 Truth；需要事实和长期背景时，用 search_memory\n`
               + `${promptGuidance}\n`
               + `- 本轮最后必须调用 channel_reply 或 channel_pass 之一完成动作\n`
@@ -541,8 +633,7 @@ export class ChannelRouter {
             : enIntro
               + `${msgText || "(No new messages)"}\n\n`
               + `Read and act like a group chat member:\n`
-              + `- You may post because you were asked, mentioned, have something useful to add, want to move the topic, want to start a topic, or feel it is worth saying\n`
-              + `- You do not need the topic to be directly about you\n`
+              + `${behaviorGuidance}\n`
               + `- Use channel_read_context for older channel Truth; use search_memory for facts and long-term background\n`
               + `${promptGuidance}\n`
               + `- End this turn by calling exactly one of channel_reply or channel_pass\n`
@@ -591,18 +682,144 @@ export class ChannelRouter {
     return decision || { replied: false, missingDecision: true };
   }
 
+  _resolveChannelMemorySenderName(sender, isZh) {
+    const rawSender = String(sender || "").trim();
+    if (!rawSender) return isZh ? "未知角色" : "Unknown";
+    if (rawSender === "system") return isZh ? "系统" : "System";
+
+    const engine = this._engine;
+    if (rawSender === "user" || rawSender === engine.userName) {
+      return engine.userName || (isZh ? "用户" : "User");
+    }
+
+    const agent = this._getAgentInstance(rawSender);
+    if (agent?.agentName) return agent.agentName;
+
+    try {
+      const cfg = loadConfig(path.join(engine.agentsDir, rawSender, "config.yaml"));
+      const name = cfg?.agent?.name;
+      if (typeof name === "string" && name.trim()) return name.trim();
+    } catch {
+      // Best effort for legacy channel logs whose sender no longer exists.
+    }
+
+    return rawSender;
+  }
+
+  _formatChannelMemoryContext(agentId, payload, isZh) {
+    if (typeof payload === "string") return payload;
+
+    const lines = [];
+    const messages = Array.isArray(payload?.messages) ? payload.messages : [];
+    for (const message of messages) {
+      const speaker = this._resolveChannelMemorySenderName(message?.sender, isZh);
+      const body = String(message?.body || "").trim();
+      if (!body) continue;
+      const timestamp = String(message?.timestamp || "").trim();
+      lines.push(timestamp ? `[${timestamp}] ${speaker}: ${body}` : `${speaker}: ${body}`);
+    }
+
+    const replyContent = String(payload?.replyContent || "").trim();
+    if (replyContent) {
+      const replyLabel = isZh ? "[我的回复]" : "[My reply]";
+      const agentName = this._resolveChannelMemorySenderName(agentId, isZh);
+      lines.push(`${replyLabel} ${agentName}: ${replyContent}`);
+    }
+
+    const legacyText = String(payload?.contextText || "").trim();
+    if (legacyText) lines.push(legacyText);
+    return lines.join("\n\n");
+  }
+
+  _channelMemorySystemPrompt(isZh) {
+    return isZh
+      ? [
+        "把频道聊天记录 Truth 压缩成可搜索的长期记忆摘要。",
+        "只输出 1 到 3 条干净短句，用分号分隔；每条必须写清“谁做了什么 / 决定了什么 / 状态发生了什么变化”。",
+        "如果输入包含已有频道记忆，请把已有记忆和本次频道内容合并重写，修掉旧 ID、含混主语和杂乱摘要。",
+        "使用输入里的角色显示名，不要保留 sender id，不要写聊天流水、标题、项目符号、mood、泛称或含混主语。",
+        "如果这批内容没有长期检索价值，只输出 NO_MEMORY。",
+      ].join("\n")
+      : [
+        "Compress the channel transcript Truth into searchable long-term memory.",
+        "Output 1 to 3 clean short facts separated by semicolons; each fact must state who did what, what was decided, or what state changed.",
+        "If existing channel memory is provided, merge and rewrite it with the current channel content, cleaning old ids, vague subjects, and messy summaries.",
+        "Use the display names from the input. Do not keep sender ids, chat logs, headings, bullets, mood, vague subjects, or generic group references.",
+        "If there is no durable searchable value, output NO_MEMORY.",
+      ].join("\n");
+  }
+
+  _normalizeChannelMemorySummary(rawSummary) {
+    return String(rawSummary || "")
+      .trim()
+      .replace(/^```(?:\w+)?\s*/u, "")
+      .replace(/\s*```$/u, "")
+      .trim();
+  }
+
+  _isEmptyChannelMemorySummary(summaryText) {
+    const normalized = String(summaryText || "").trim().toUpperCase();
+    return !normalized || normalized === "NO_MEMORY" || normalized === "无记忆";
+  }
+
+  _getPreviousChannelMemoryFacts(factStore, sessionId) {
+    if (typeof factStore?.getBySession !== "function") {
+      return [];
+    }
+    return factStore.getBySession(sessionId) || [];
+  }
+
+  _clearPreviousChannelMemoryFacts(factStore, sessionId, previousFacts = null) {
+    if (typeof factStore?.delete !== "function") {
+      return;
+    }
+    const facts = Array.isArray(previousFacts)
+      ? previousFacts
+      : this._getPreviousChannelMemoryFacts(factStore, sessionId);
+    for (const fact of facts) {
+      if (fact?.id != null) factStore.delete(fact.id);
+    }
+  }
+
+  _formatChannelMemoryPromptContent(channelName, contextText, previousFacts, isZh) {
+    const previousText = previousFacts
+      .map(fact => String(fact?.fact || "").trim())
+      .filter(Boolean)
+      .join("\n");
+    const clippedContext = contextText.slice(0, 3000);
+    const clippedPrevious = previousText.slice(0, 2000);
+    if (isZh) {
+      return [
+        `频道 #${channelName}`,
+        "已有频道记忆（可能包含旧 ID 或杂乱摘要，请清洗并合并）：",
+        clippedPrevious || "（无）",
+        "本次频道内容：",
+        clippedContext,
+      ].join("\n");
+    }
+    return [
+      `Channel #${channelName}`,
+      "Existing channel memory (may contain old ids or messy summaries; clean and merge it):",
+      clippedPrevious || "(none)",
+      "Current channel content:",
+      clippedContext,
+    ].join("\n");
+  }
+
   /**
-   * 集群记忆摘要
+   * 频道记忆摘要
    * 从 engine._channelMemorySummarize 搬入
    */
-  async _memorySummarize(agentId, channelName, contextText) {
+  async _memorySummarize(agentId, channelName, payload) {
     const engine = this._engine;
+    let factStore = null;
+    let needClose = false;
     try {
-      // 记忆 master 关闭时不写入新记忆（集群摘要是写侧操作）
+      // 记忆 master 关闭时不写入新记忆（频道摘要是写侧操作）
       const agentInstance = this._getAgentInstance(agentId);
       const memoryMasterOn = this._resolveMemoryMasterEnabled(agentId, { agentInstance });
       if (!memoryMasterOn) {
-        console.log(`\x1b[90m[channel] ${agentId} memory master 已关闭，跳过集群记忆摘要\x1b[0m`);
+        console.log(`\x1b[90m[channel] ${agentId} memory master 已关闭，跳过频道记忆摘要\x1b[0m`);
         return;
       }
 
@@ -614,21 +831,11 @@ export class ChannelRouter {
       }
 
       const isZhMem = getLocale().startsWith("zh");
-      const summaryText = await callText({
-        api, model,
-        apiKey: api_key,
-        baseUrl: base_url,
-        systemPrompt: isZhMem
-          ? "将集群对话摘要为一条简短的记忆（一两句话），记录关键信息和结论。直接输出摘要，不要前缀。"
-          : "Summarize the channel conversation into a brief memory (one or two sentences), capturing key information and conclusions. Output the summary directly, no prefix.",
-        messages: [{ role: "user", content: isZhMem ? `集群 #${channelName}：\n${contextText.slice(0, 2000)}` : `Channel #${channelName}:\n${contextText.slice(0, 2000)}` }],
-        temperature: 0.3,
-        maxTokens: 200,
-      });
+      const contextText = this._formatChannelMemoryContext(agentId, payload, isZhMem);
+      if (!contextText.trim()) return;
 
       // 写入 agent 的 fact store
-      let factStore = null;
-      let needClose = false;
+      const sessionId = `channel-${channelName}`;
 
       if (agentInstance?.factStore) {
         factStore = agentInstance.factStore;
@@ -639,21 +846,39 @@ export class ChannelRouter {
         needClose = true;
       }
 
+      const previousFacts = this._getPreviousChannelMemoryFacts(factStore, sessionId);
+      const rawSummary = await callText({
+        api, model,
+        apiKey: api_key,
+        baseUrl: base_url,
+        systemPrompt: this._channelMemorySystemPrompt(isZhMem),
+        messages: [{
+          role: "user",
+          content: this._formatChannelMemoryPromptContent(channelName, contextText, previousFacts, isZhMem),
+        }],
+        temperature: 0.3,
+        maxTokens: 200,
+      });
+      const summaryText = this._normalizeChannelMemorySummary(rawSummary);
+
       const now = new Date();
-      try {
-        factStore.add({
-          fact: `[#${channelName}] ${summaryText}`,
-          tags: [isZhMem ? "集群" : "channel", channelName],
-          time: now.toISOString().slice(0, 16),
-          session_id: `channel-${channelName}`,
-        });
-      } finally {
-        if (needClose) factStore.close();
+      this._clearPreviousChannelMemoryFacts(factStore, sessionId, previousFacts);
+      if (this._isEmptyChannelMemorySummary(summaryText)) {
+        console.log(`\x1b[90m[channel] ${agentId} memory cleared/no durable summary (#${channelName})\x1b[0m`);
+        return;
       }
+      factStore.add({
+        fact: `[#${channelName}] ${summaryText}`,
+        tags: [isZhMem ? "频道" : "channel", channelName],
+        time: now.toISOString().slice(0, 16),
+        session_id: sessionId,
+      });
 
       console.log(`\x1b[90m[channel] ${agentId} memory saved (#${channelName}, ${summaryText.length} chars)\x1b[0m`);
     } catch (err) {
       console.error(`[channel] 记忆摘要失败 (${agentId}/#${channelName}): ${err.message}`);
+    } finally {
+      if (needClose) factStore?.close?.();
     }
   }
 }

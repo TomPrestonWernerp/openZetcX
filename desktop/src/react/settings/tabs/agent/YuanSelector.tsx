@@ -5,13 +5,14 @@ export type YuanMeta = { label?: string; avatar?: string };
 export type YuanEntry = [string, YuanMeta];
 
 const YUAN_DISPLAY_NAMES: Record<string, string> = {
-  butter: '小省',
+  hanako: '环环',
   openZetcX: '环环',
+  butter: '小省',
   ming: '小科',
   kong: 'openZetcX',
 };
 
-const YUAN_ORDER = ['butter', 'openZetcX', 'ming', 'kong'];
+const YUAN_ORDER = ['butter', 'hanako', 'openZetcX', 'ming', 'kong'];
 
 export function getYuanDisplayName(key: string): string {
   return YUAN_DISPLAY_NAMES[key] || key;

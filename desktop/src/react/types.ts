@@ -50,6 +50,8 @@ export interface Agent {
   yuan: string;
   isPrimary: boolean;
   hasAvatar?: boolean;
+  chatModel?: { id: string; provider?: string | null } | null;
+  homeFolder?: string | null;
   memoryMasterEnabled?: boolean;
 }
 
@@ -80,6 +82,7 @@ export interface Channel {
   messageCount?: number;
   newMessageCount: number;
   isDM?: boolean;
+  dmOwnerId?: string;
   peerId?: string;
   peerName?: string;
 }
@@ -147,6 +150,13 @@ export interface DeskFile {
   isDir: boolean;
   size?: number;
   mtime?: string;
+}
+
+export interface WorkspaceChangePayload {
+  rootPath: string;
+  changedPath: string;
+  affectedDir: string;
+  eventType: string;
 }
 
 export interface DeskSearchResult {
@@ -240,6 +250,9 @@ export interface PlatformApi {
   watchFile(filePath: string): Promise<boolean>;
   unwatchFile(filePath: string): Promise<boolean>;
   onFileChanged(callback: (filePath: string) => void): void;
+  watchWorkspace?(rootPath: string): Promise<boolean>;
+  unwatchWorkspace?(rootPath: string): Promise<boolean>;
+  onWorkspaceChanged?(callback: (payload: WorkspaceChangePayload) => void): void;
   readFileBase64(path: string): Promise<string | null>;
   /** 把本地路径转成 <img>/<video> 可用的 file:// URL（同步，纯路径转换）。Web fallback 无此方法，消费侧需运行时判空。 */
   getFileUrl?(path: string): string;
@@ -294,6 +307,7 @@ export interface PlatformApi {
   // ── Splash / Onboarding ──
   getAvatarPath?(role: string): Promise<string | null>;
   getSplashInfo?(): Promise<{ agentName?: string; locale?: string; yuan?: string } | null>;
+  reloadMainWindow?(): Promise<void>;
   onboardingComplete?(): Promise<void>;
 
   // ── Notification ──

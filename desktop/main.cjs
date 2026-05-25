@@ -21,7 +21,9 @@ const {
   setAutoLaunchEnabled,
 } = require("./login-item-settings.cjs");
 const { createFileWatchRegistry } = require("./file-watch-registry.cjs");
+const { createWorkspaceWatchRegistry } = require("./workspace-watch-registry.cjs");
 const { readTextFileSnapshot, writeTextFileIfUnchanged } = require("./file-text-io.cjs");
+const chokidar = require("chokidar");
 const { wrapIpcHandler, wrapIpcBestEffortHandler, wrapIpcOn } = require('./ipc-wrapper.cjs');
 const themeRegistry = require('./src/shared/theme-registry.cjs');
 const { resolveTrashItemPath } = require("./src/shared/trash-item-path.cjs");
@@ -41,8 +43,27 @@ const {
   buildBrowserSearchLoadOptions,
   buildBrowserSearchUrl,
 } = require("../lib/browser/browser-search-extractors.cjs");
+const {
+  normalizeNetworkProxyConfig,
+  electronProxyRulesForConfig,
+  electronProxyBypassRulesForConfig,
+  proxyConfigToEnvironment,
+  withForcedLocalProxyBypass,
+} = require("../shared/network-proxy.cjs");
+const {
+  applyGpuStartupPolicy,
+  buildGpuStartupDiagnostics,
+  markGpuStartupFailed,
+  markGpuStartupPending,
+  markGpuStartupPhase,
+  markGpuStartupReady,
+  recordGpuChildProcessGone,
+  recordGpuInfoUpdate,
+  resolveGpuStartupPolicy,
+} = require("./src/shared/gpu-startup-policy.cjs");
 
-const APP_USER_MODEL_ID = "com.openZetcX.app"; // Keep in sync with package.json build.appId.
+const APP_USER_MODEL_ID = "com.openzetcx.app"; // Keep in sync with package.json build.appId.
+const REQUIRED_SERVER_API_CONTRACT_VERSION = "openzetcx-api-2026-05-sessions-marketplace";
 
 // preload 缺失时 Electron 会静默忽略，renderer 拿不到 window.hana →
 // onboarding/主窗口白屏且无前端报错。此处硬崩，拒绝以不可用状态启动。
@@ -89,12 +110,90 @@ function safeReadJSON(filePath, fallback = null) {
 }
 
 const openZetcXHome = resolveopenZetcXHome(process.env.HANA_HOME);
+const hanakoHome = openZetcXHome;
 process.env.HANA_HOME = openZetcXHome;
-ensureHanaPiSdkDirs(openZetcXHome);
-configureProcessPiSdkEnv(openZetcXHome);
+ensureHanaPiSdkDirs(hanakoHome);
+configureProcessPiSdkEnv(hanakoHome);
 
 function redactMainLogText(value) {
-  return redactLogText(value, { homeDir: os.homedir(), extraPaths: [openZetcXHome] });
+  return redactLogText(value, { homeDir: os.homedir(), extraPaths: [hanakoHome] });
+}
+
+function readNetworkProxyPreference() {
+  const prefsPath = path.join(hanakoHome, "user", "preferences.json");
+  const prefs = safeReadJSON(prefsPath, {});
+  return normalizeNetworkProxyConfig(prefs?.network_proxy);
+}
+
+async function applyDesktopNetworkProxy(config, { reason = "runtime" } = {}) {
+  const normalized = normalizeNetworkProxyConfig(config);
+  const ses = session.defaultSession;
+  if (!ses) return normalized;
+
+  if (normalized.mode === "direct") {
+    await ses.setProxy({ mode: "direct" });
+  } else if (normalized.mode === "manual") {
+    const proxyRules = electronProxyRulesForConfig(normalized);
+    await ses.setProxy({
+      mode: "fixed_servers",
+      proxyRules,
+      proxyBypassRules: electronProxyBypassRulesForConfig(normalized),
+    });
+  } else {
+    await ses.setProxy({ mode: "system" });
+  }
+
+  console.log(`[desktop] network proxy applied (${reason}): ${normalized.mode}`);
+  return normalized;
+}
+
+function parseElectronProxyList(proxyList) {
+  const first = String(proxyList || "")
+    .split(";")
+    .map(item => item.trim())
+    .find(item => item && item.toUpperCase() !== "DIRECT");
+  if (!first) return "";
+
+  const match = first.match(/^([A-Z0-9]+)\s+(.+)$/i);
+  if (!match) return "";
+  const type = match[1].toUpperCase();
+  const server = match[2].trim();
+  if (!server) return "";
+
+  if (type === "SOCKS5") return `socks5://${server}`;
+  if (type === "SOCKS") return `socks://${server}`;
+  if (type === "HTTPS") return `https://${server}`;
+  return `http://${server}`;
+}
+
+async function resolveElectronProxyUrl(targetUrl) {
+  try {
+    return parseElectronProxyList(await session.defaultSession.resolveProxy(targetUrl));
+  } catch {
+    return "";
+  }
+}
+
+async function serverEnvironmentForNetworkProxy(baseEnv) {
+  const config = readNetworkProxyPreference();
+  if (config.mode === "manual" || config.mode === "direct") {
+    return proxyConfigToEnvironment(config, baseEnv);
+  }
+
+  const env = { ...(baseEnv || {}) };
+  const [httpProxy, httpsProxy, wsProxy, wssProxy] = await Promise.all([
+    resolveElectronProxyUrl("http://example.com"),
+    resolveElectronProxyUrl("https://example.com"),
+    resolveElectronProxyUrl("ws://example.com"),
+    resolveElectronProxyUrl("wss://example.com"),
+  ]);
+  if (httpProxy) env.HTTP_PROXY = env.http_proxy = httpProxy;
+  if (httpsProxy) env.HTTPS_PROXY = env.https_proxy = httpsProxy;
+  if (wsProxy) env.WS_PROXY = env.ws_proxy = wsProxy;
+  if (wssProxy) env.WSS_PROXY = env.wss_proxy = wssProxy;
+  const noProxy = withForcedLocalProxyBypass(env.NO_PROXY || env.no_proxy || config.noProxy);
+  if (noProxy) env.NO_PROXY = env.no_proxy = noProxy;
+  return env;
 }
 
 // 按 HANA_HOME 隔离 Electron userData（localStorage / cache / session）
@@ -110,6 +209,59 @@ configureClientSingleInstance(app, {
 if (process.platform === "win32") {
   app.setAppUserModelId(APP_USER_MODEL_ID);
 }
+
+const gpuStartupPolicy = resolveGpuStartupPolicy({
+  hanakoHome,
+  platform: process.platform,
+  argv: process.argv,
+  env: process.env,
+});
+applyGpuStartupPolicy(app, gpuStartupPolicy);
+if (!gpuStartupPolicy.hardwareAccelerationEnabled) {
+  console.warn(`[desktop] GPU safe mode enabled (${gpuStartupPolicy.reason}); hardware acceleration disabled for this launch`);
+}
+const desktopStartupId = `${Date.now()}-${process.pid}`;
+if (process.platform === "win32") {
+  markGpuStartupPending({
+    hanakoHome,
+    platform: process.platform,
+    phase: "electron-starting",
+    startupId: desktopStartupId,
+  });
+}
+
+app.on("child-process-gone", (_event, details) => {
+  if (process.platform !== "win32") return;
+  if (!recordGpuChildProcessGone({
+    hanakoHome,
+    platform: process.platform,
+    details,
+  })) {
+    return;
+  }
+  const reason = `${details?.reason || "unknown"} (code: ${details?.exitCode ?? "unknown"})`;
+  console.error(`[desktop] GPU process exited unexpectedly: ${reason}`);
+  try {
+    writeCrashLog(`GPU process exited unexpectedly: ${reason}`);
+  } catch (err) {
+    console.error("[desktop] 写入 GPU crash.log 失败:", err.message);
+  }
+});
+
+app.on("gpu-info-update", () => {
+  if (process.platform !== "win32") return;
+  try {
+    if (typeof app.getGPUFeatureStatus === "function") {
+      recordGpuInfoUpdate({
+        hanakoHome,
+        platform: process.platform,
+        featureStatus: app.getGPUFeatureStatus(),
+      });
+    }
+  } catch (err) {
+    console.warn("[desktop] GPU info update 记录失败:", err.message);
+  }
+});
 
 let splashWindow = null;
 let mainWindow = null;
@@ -187,7 +339,7 @@ function _getMainI18n() {
     // 从 preferences.json 读取全局 locale（和 server/renderer 一致）
     let locale = null;
     try {
-      const prefs = JSON.parse(fs.readFileSync(path.join(openZetcXHome, "user", "preferences.json"), "utf-8"));
+      const prefs = JSON.parse(fs.readFileSync(path.join(hanakoHome, "user", "preferences.json"), "utf-8"));
       locale = prefs.locale || null;
     } catch { /* preferences.json 不存在时 fallback */ }
     const key = _resolveLocaleKey(locale);
@@ -296,8 +448,8 @@ function applyWindowThemeColors(win, rawTheme) {
  * 优先读 user/preferences.json，fallback 扫描 agents/ 第一个有效目录
  */
 function getCurrentAgentId() {
-  const prefsPath = path.join(openZetcXHome, "user", "preferences.json");
-  const agentsDir = path.join(openZetcXHome, "agents");
+  const prefsPath = path.join(hanakoHome, "user", "preferences.json");
+  const agentsDir = path.join(hanakoHome, "agents");
 
   // 1. 读 preferences
   try {
@@ -330,7 +482,7 @@ function getCurrentAgentId() {
  * 只看 preferences.json 的 setupComplete 标记
  */
 function isSetupComplete() {
-  const prefsPath = path.join(openZetcXHome, "user", "preferences.json");
+  const prefsPath = path.join(hanakoHome, "user", "preferences.json");
   try {
     return JSON.parse(fs.readFileSync(prefsPath, "utf-8")).setupComplete === true;
   } catch {}
@@ -345,7 +497,7 @@ function hasExistingConfig() {
   try {
     const agentId = getCurrentAgentId();
     if (!agentId) return false;
-    const configPath = path.join(openZetcXHome, "agents", agentId, "config.yaml");
+    const configPath = path.join(hanakoHome, "agents", agentId, "config.yaml");
     const configText = fs.readFileSync(configPath, "utf-8");
     return /api_key:\s*["']?[^"'\s]+/.test(configText);
   } catch {}
@@ -363,14 +515,14 @@ function migrateSetupComplete() {
   // 不能只看 agents/*/config.yaml 是否存在，因为 ensureFirstRun 会为全新用户
   // 播种默认 agent（含 config.yaml），导致新用户被误判为老用户而跳过 onboarding。
   try {
-    const modelsPath = path.join(openZetcXHome, "added-models.yaml");
+    const modelsPath = path.join(hanakoHome, "added-models.yaml");
     if (!fs.existsSync(modelsPath)) return;
     const content = fs.readFileSync(modelsPath, "utf-8");
     if (!/api_key:\s*["']?[^"'\s]+/.test(content)) return;
   } catch {
     return;
   }
-  const prefsPath = path.join(openZetcXHome, "user", "preferences.json");
+  const prefsPath = path.join(hanakoHome, "user", "preferences.json");
   try {
     let prefs = {};
     try { prefs = JSON.parse(fs.readFileSync(prefsPath, "utf-8")); } catch {}
@@ -496,7 +648,7 @@ function pollServerInfo(infoPath, {
 }
 
 async function startServer() {
-  const serverInfoPath = path.join(openZetcXHome, "server-info.json");
+  const serverInfoPath = path.join(hanakoHome, "server-info.json");
 
   // ── 1. 检查是否有已运行的 server（Electron crash 后遗留的守护进程） ──
   let existingInfo = null;
@@ -524,12 +676,19 @@ async function startServer() {
             headers: { Authorization: `Bearer ${existingInfo.token}` },
             signal: AbortSignal.timeout(2000),
           });
-          if (res.ok) {
+          const health = res.ok ? await res.json().catch(() => null) : null;
+          const canReuseServer =
+            health?.apiContractVersion === REQUIRED_SERVER_API_CONTRACT_VERSION
+            && health?.capabilities?.sessionsSwitch === true
+            && health?.capabilities?.pluginMarketplace === true;
+          if (res.ok && canReuseServer) {
             console.log(`[desktop] 复用已运行的 server，端口: ${existingInfo.port}, 版本: ${serverVersion || "unknown"}`);
             serverPort = existingInfo.port;
             serverToken = existingInfo.token;
             reusedServerPid = existingInfo.pid;
             reused = true;
+          } else if (res.ok) {
+            console.log("[desktop] stale server API contract; restarting server");
           }
         } catch { /* health check 网络抖动，继续 kill 旧 server */ }
 
@@ -610,7 +769,8 @@ async function _spawnServerOnce(serverInfoPath) {
   _serverLogs = [];
   _lastServerProgressAtMs = null;
 
-  const serverEnv = { ...withHanaPiSdkEnv(process.env, openZetcXHome), HANA_HOME: openZetcXHome };
+  let serverEnv = { ...withHanaPiSdkEnv(process.env, hanakoHome), HANA_HOME: hanakoHome };
+  serverEnv = await serverEnvironmentForNetworkProxy(serverEnv);
 
   // Windows: 注入 PortableGit 路径
   if (process.platform === "win32") {
@@ -796,15 +956,8 @@ function createTray() {
   const isDev = !app.isPackaged;
   let icon;
   if (process.platform === "win32") {
-    // Windows 优先用 .ico，缺失则回退到 .png
-    const icoName = isDev ? "tray-dev.ico" : "tray.ico";
-    const icoPath = path.join(__dirname, "src", "assets", icoName);
-    if (fs.existsSync(icoPath)) {
-      icon = nativeImage.createFromPath(icoPath);
-    } else {
-      const pngName = isDev ? "tray-dev-template.png" : "tray-template.png";
-      icon = nativeImage.createFromPath(path.join(__dirname, "src", "assets", pngName));
-    }
+    const appIcon = nativeImage.createFromPath(path.join(__dirname, "src", "icon.png"));
+    icon = appIcon.isEmpty() ? appIcon : appIcon.resize({ width: 16, height: 16 });
   } else {
     const iconName = isDev ? "tray-dev-template.png" : "tray-template.png";
     const iconPath = path.join(__dirname, "src", "assets", iconName);
@@ -843,7 +996,7 @@ function buildServerCrashDiagnostics() {
   const items = [
     ``,
     `--- Diagnostics ---`,
-    `HANA_HOME: ${openZetcXHome}`,
+    `HANA_HOME: ${hanakoHome}`,
     `Server dir: ${serverDir}`,
     `Packaged: ${!!isPackaged}`,
     `bundle/index.js exists: ${fs.existsSync(bundlePath)}`,
@@ -876,6 +1029,8 @@ function buildServerCrashDiagnostics() {
     items.push(`Manual debug: open cmd.exe, cd to "${serverDir}", run hana-server.cmd`);
   }
 
+  items.push(buildGpuStartupDiagnostics({ hanakoHome, policy: gpuStartupPolicy, app }));
+
   return items.join("\n");
 }
 
@@ -901,8 +1056,8 @@ function writeCrashLog(errorMessage) {
 
   // 写入文件（best effort）
   try {
-    const crashLogPath = path.join(openZetcXHome, "crash.log");
-    fs.mkdirSync(openZetcXHome, { recursive: true });
+    const crashLogPath = path.join(hanakoHome, "crash.log");
+    fs.mkdirSync(hanakoHome, { recursive: true });
     fs.writeFileSync(crashLogPath, content, "utf-8");
   } catch (e) {
     console.error("[desktop] 写入 crash.log 失败:", e.message);
@@ -913,6 +1068,14 @@ function writeCrashLog(errorMessage) {
 
 // ── 创建启动窗口 ──
 function createSplashWindow() {
+  if (process.platform === "win32") {
+    markGpuStartupPhase({
+      hanakoHome,
+      platform: process.platform,
+      phase: "launching-splash",
+      startupId: desktopStartupId,
+    });
+  }
   splashWindow = new BrowserWindow({
     width: 380,
     height: 280,
@@ -932,6 +1095,14 @@ function createSplashWindow() {
   loadWindowURL(splashWindow, "splash");
 
   splashWindow.once("ready-to-show", () => {
+    if (process.platform === "win32") {
+      markGpuStartupPhase({
+        hanakoHome,
+        platform: process.platform,
+        phase: "splash-ready",
+        startupId: desktopStartupId,
+      });
+    }
     splashWindow.show();
   });
 
@@ -941,7 +1112,7 @@ function createSplashWindow() {
 }
 
 // ── 窗口状态记忆 ──
-const windowStatePath = path.join(openZetcXHome, "user", "window-state.json");
+const windowStatePath = path.join(hanakoHome, "user", "window-state.json");
 
 function loadWindowState() {
   try {
@@ -1004,7 +1175,7 @@ function createMainWindow() {
   if (!_autoUpdaterInitialized) {
     initAutoUpdater(mainWindow, {
       setIsUpdating: (v) => { _isUpdating = v; },
-      openZetcXHome,
+      hanakoHome,
     });
     _autoUpdaterInitialized = true;
   } else {
@@ -1623,6 +1794,42 @@ function _notifyViewerUrl(url) {
   }
 }
 
+async function closeBrowserSessionViaServer(sessionPath) {
+  if (!sessionPath) throw new Error("No active browser session");
+  if (!serverPort || !serverToken) throw new Error("Server is not ready");
+  const res = await fetch(`http://127.0.0.1:${serverPort}/api/browser/close-session`, {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${serverToken}`,
+    },
+    body: JSON.stringify({ sessionPath }),
+    signal: AbortSignal.timeout(5000),
+  });
+  if (!res.ok) {
+    let detail = "";
+    try { detail = await res.text(); } catch {}
+    throw new Error(`Browser close request failed with HTTP ${res.status}${detail ? `: ${detail}` : ""}`);
+  }
+}
+
+function encodeCapturedPageToJpegBase64(image, quality, label = "screenshot") {
+  if (!image || (typeof image.isEmpty === "function" && image.isEmpty())) {
+    const emptyImageMessage = label === "screenshot"
+      ? "Browser screenshot capture returned an empty image. The browser display surface may be unavailable."
+      : `Browser ${label} capture returned an empty image. The browser display surface may be unavailable.`;
+    throw new Error(emptyImageMessage);
+  }
+  const jpeg = image.toJPEG(quality);
+  if (!Buffer.isBuffer(jpeg) || jpeg.length === 0) {
+    const noDataMessage = label === "screenshot"
+      ? "Browser screenshot capture returned no image data. The browser display surface may be unavailable."
+      : `Browser ${label} capture returned no image data. The browser display surface may be unavailable.`;
+    throw new Error(noDataMessage);
+  }
+  return jpeg.toString("base64");
+}
+
 async function handleBrowserCommand(cmd, params) {
   switch (cmd) {
 
@@ -1865,8 +2072,7 @@ async function handleBrowserCommand(cmd, params) {
     case "screenshot": {
       return await _withLiveWebContents(params.sessionPath, async (wc) => {
         const img = await wc.capturePage();
-        const jpeg = img.toJPEG(75);
-        return { base64: jpeg.toString("base64") };
+        return { base64: encodeCapturedPageToJpegBase64(img, 75, "screenshot") };
       });
     }
 
@@ -1875,8 +2081,7 @@ async function handleBrowserCommand(cmd, params) {
       return await _withLiveWebContents(params.sessionPath, async (wc) => {
         const img = await wc.capturePage();
         const resized = img.resize({ width: 400 });
-        const jpeg = resized.toJPEG(60);
-        return { base64: jpeg.toString("base64") };
+        return { base64: encodeCapturedPageToJpegBase64(resized, 60, "thumbnail") };
       });
     }
 
@@ -2070,7 +2275,7 @@ function setupBrowserCommands() {
       try { msg = JSON.parse(data); } catch { return; }
       if (msg?.type !== "browser-cmd") return;
       const { id, cmd, params } = msg;
-      const _bLog = (line) => { try { require("fs").appendFileSync(require("path").join(openZetcXHome, "browser-cmd.log"), `${new Date().toISOString()} ${redactMainLogText(line)}\n`); } catch {} };
+      const _bLog = (line) => { try { require("fs").appendFileSync(require("path").join(hanakoHome, "browser-cmd.log"), `${new Date().toISOString()} ${redactMainLogText(line)}\n`); } catch {} };
       _bLog(`→ received cmd=${cmd} id=${id}`);
       try {
         const result = await handleBrowserCommand(cmd, params || {});
@@ -2335,7 +2540,7 @@ function buildScreenshotHTML(payload) {
     .chat-name { font-size: 0.9em; font-weight: 600; opacity: 0.7; }
     .chat-body { padding-left: 0; }
     .chat-body p:last-child { margin-bottom: 0; }
-    .chat-image { max-width: 100%; border-radius: 6px; margin: 0.8em 0; }
+    .chat-image { width: ${themeName.endsWith("-desktop") ? "66.666%" : "100%"}; max-width: 100%; height: auto; border-radius: 6px; margin: 0.8em 0; display: block; }
     .watermark {
       display: flex; align-items: center; justify-content: center;
       gap: 0.5em; padding: 1.5em 0 1em; opacity: 0.5;
@@ -2459,7 +2664,11 @@ wrapIpcBestEffortHandler("close-browser-viewer", () => {
   if (browserViewerWindow && !browserViewerWindow.isDestroyed()) browserViewerWindow.close();
 });
 wrapIpcBestEffortHandler("browser-emergency-stop", () => {
-  // 紧急停止：销毁当前浏览器实例，释放 AI 控制
+  // 有 session 归属时必须经过 server 的 BrowserManager，保持 UI 和运行时状态一致。
+  if (_currentBrowserSession) {
+    return closeBrowserSessionViaServer(_currentBrowserSession);
+  }
+  // 兼容无 sessionPath 的旧浏览器实例：没有 server 状态可同步，只能本地清理。
   if (_browserWebView) {
     if (browserViewerWindow && !browserViewerWindow.isDestroyed()) {
       try { browserViewerWindow.contentView.removeChildView(_browserWebView); } catch {}
@@ -2550,6 +2759,11 @@ wrapIpcOn("settings-changed", (_event, type, data) => {
       browserViewerWindow.webContents.send("settings-changed", type, data);
     }
   }
+  if (type === "network-proxy-changed") {
+    applyDesktopNetworkProxy(data?.network_proxy || readNetworkProxyPreference(), { reason: "settings" }).catch(err => {
+      console.error("[desktop] apply network proxy failed:", redactMainLogText(err.message));
+    });
+  }
   if (type === "locale-changed") {
     resetMainI18n();
     // 重建托盘菜单，使标签跟随新 locale
@@ -2571,8 +2785,8 @@ wrapIpcHandler("get-avatar-path", (_event, role) => {
   const agentId = getCurrentAgentId();
   // agent 头像在 agents/{id}/avatars/，user 头像在 user/avatars/
   const baseDir = role === "user"
-    ? path.join(openZetcXHome, "user")
-    : agentId ? path.join(openZetcXHome, "agents", agentId) : null;
+    ? path.join(hanakoHome, "user")
+    : agentId ? path.join(hanakoHome, "agents", agentId) : null;
   if (!baseDir) return null;
   const avatarDir = path.join(baseDir, "avatars");
   for (const ext of ["png", "jpg", "jpeg", "webp"]) {
@@ -2586,8 +2800,8 @@ wrapIpcHandler("get-avatar-path", (_event, role) => {
 wrapIpcHandler("get-splash-info", () => {
   try {
     const agentId = getCurrentAgentId();
-    if (!agentId) return { agentName: null, locale: "zh-CN", yuan: "openZetcX" };
-    const configPath = path.join(openZetcXHome, "agents", agentId, "config.yaml");
+    if (!agentId) return { agentName: null, locale: "zh-CN", yuan: "hanako" };
+    const configPath = path.join(hanakoHome, "agents", agentId, "config.yaml");
     const text = fs.readFileSync(configPath, "utf-8");
     // 简易提取：agent:\n  name: xxx / yuan: xxx 和顶层 locale: xxx
     const agentMatch = text.match(/^agent:\s*\n\s+name:\s*([^#\n]+)/m);
@@ -2596,10 +2810,10 @@ wrapIpcHandler("get-splash-info", () => {
     return {
       agentName: agentMatch?.[1]?.trim() || null,
       locale: localeMatch?.[1]?.trim() || null,
-      yuan: yuanMatch?.[1]?.trim() || "openZetcX",
+      yuan: yuanMatch?.[1]?.trim() || "hanako",
     };
   } catch {
-    return { agentName: null, locale: "zh-CN", yuan: "openZetcX" };
+    return { agentName: null, locale: "zh-CN", yuan: "hanako" };
   }
 });
 
@@ -2672,7 +2886,7 @@ wrapIpcBestEffortHandler("open-skill-viewer", (_event, data) => {
       const baseName = path.basename(data.skillPath, fileExt);
 
       // 先检查同名 skill 是否已安装在 skills 目录
-      const installedDir = path.join(openZetcXHome, "skills", baseName);
+      const installedDir = path.join(hanakoHome, "skills", baseName);
       if (fs.existsSync(path.join(installedDir, "SKILL.md"))) {
         _showSkillViewer({ name: baseName, baseDir: installedDir, installed: false }, fromSettings);
         return;
@@ -2879,7 +3093,12 @@ wrapIpcHandler("screenshot-render", (_event, payload) => {
       const timestamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}${pad(now.getSeconds())}`;
       const base = payload.saveDir || path.join(os.homedir(), "Desktop");
       const dir = path.join(base, "截图");
-      const filePath = path.join(dir, `openZetcX-${timestamp}.png`);
+      const segmentTotal = Number(payload.segmentTotal);
+      const segmentIndex = Number(payload.segmentIndex);
+      const segmentSuffix = Number.isInteger(segmentTotal) && segmentTotal > 1 && Number.isInteger(segmentIndex) && segmentIndex > 0
+        ? `-${String(segmentIndex).padStart(2, "0")}-of-${String(segmentTotal).padStart(2, "0")}`
+        : "";
+      const filePath = path.join(dir, `hanako-${timestamp}${segmentSuffix}.png`);
 
       fs.mkdirSync(dir, { recursive: true });
       fs.writeFileSync(filePath, pngBuffer);
@@ -2922,6 +3141,42 @@ wrapIpcBestEffortHandler("watch-file", (event, filePath) => {
 wrapIpcBestEffortHandler("unwatch-file", (event, filePath) => {
   if (!filePath || !path.isAbsolute(filePath)) return true;
   return _fileWatchRegistry.unwatchFile(filePath, event.sender.id);
+});
+
+// 工作区文件树监听：以 workspace root 为粒度递归监听，renderer 只消费目录失效事件。
+const _workspaceWatchedRendererIds = new Set();
+const _workspaceWatchRegistry = createWorkspaceWatchRegistry({
+  watch: (rootPath, options) => chokidar.watch(rootPath, options),
+  notifySubscriber: (subscriberId, payload) => {
+    const wc = webContents.fromId(subscriberId);
+    if (!wc || wc.isDestroyed()) {
+      _workspaceWatchedRendererIds.delete(subscriberId);
+      _workspaceWatchRegistry.unwatchAllForSubscriber(subscriberId);
+      return;
+    }
+    wc.send("workspace-changed", payload);
+  },
+  onError: (err, rootPath) => {
+    console.warn("[workspace-watch] failed:", rootPath, err?.message || err);
+  },
+});
+
+wrapIpcBestEffortHandler("watch-workspace", (event, rootPath) => {
+  if (!rootPath || !path.isAbsolute(rootPath)) return false;
+  const subscriberId = event.sender.id;
+  if (!_workspaceWatchedRendererIds.has(subscriberId)) {
+    _workspaceWatchedRendererIds.add(subscriberId);
+    event.sender.once("destroyed", () => {
+      _workspaceWatchedRendererIds.delete(subscriberId);
+      _workspaceWatchRegistry.unwatchAllForSubscriber(subscriberId);
+    });
+  }
+  return _workspaceWatchRegistry.watchWorkspace(rootPath, subscriberId);
+});
+
+wrapIpcBestEffortHandler("unwatch-workspace", (event, rootPath) => {
+  if (!rootPath || !path.isAbsolute(rootPath)) return true;
+  return _workspaceWatchRegistry.unwatchWorkspace(rootPath, event.sender.id);
 });
 
 // 读取二进制文件为 base64（图片、PDF 等）
@@ -2985,7 +3240,7 @@ wrapIpcBestEffortHandler("reload-main-window", () => {
 wrapIpcBestEffortHandler("show-notification", (_event, title, body) => {
   if (!Notification.isSupported()) return;
   const notif = new Notification({
-    title: title || "Hana",
+    title: title || "openZetcX",
     body: body || "",
     silent: false,
   });
@@ -3019,7 +3274,7 @@ wrapIpcBestEffortHandler("debug-open-onboarding-preview", () => {
 
 // Onboarding 完成后，写标记 → 创建主窗口
 wrapIpcHandler("onboarding-complete", () => {
-  const prefsPath = path.join(openZetcXHome, "user", "preferences.json");
+  const prefsPath = path.join(hanakoHome, "user", "preferences.json");
   try {
     let prefs = {};
     try { prefs = JSON.parse(fs.readFileSync(prefsPath, "utf-8")); } catch {}
@@ -3050,6 +3305,15 @@ wrapIpcHandler("window-is-maximized", (event) => {
 
 // 前端初始化完成后调用，关闭 splash / onboarding，显示主窗口
 wrapIpcBestEffortHandler("app-ready", () => {
+  if (process.platform === "win32") {
+    markGpuStartupReady({
+      hanakoHome,
+      platform: process.platform,
+      startupId: desktopStartupId,
+      phase: "app-ready",
+    });
+  }
+
   if (mainWindow && !_startHiddenAtLogin) {
     mainWindow.show();
   }
@@ -3059,7 +3323,7 @@ wrapIpcBestEffortHandler("app-ready", () => {
     const settings = systemPreferences.getNotificationSettings?.();
     const status = settings?.authorizationStatus;
     if (settings && status === "not-determined") {
-      const notif = new Notification({ title: "Hana", body: mt("notification.ready", null, "Notifications enabled"), silent: true });
+      const notif = new Notification({ title: "openZetcX", body: mt("notification.ready", null, "Notifications enabled"), silent: true });
       notif.show();
     }
   }
@@ -3087,10 +3351,27 @@ app.whenReady().then(async () => {
     }
     const splashShownAt = Date.now();
     await resolveLoginShellPath();
+    await applyDesktopNetworkProxy(readNetworkProxyPreference(), { reason: "startup" });
 
     // 2. 后台启动 server（PATH 已就绪）
+    if (process.platform === "win32") {
+      markGpuStartupPhase({
+        hanakoHome,
+        platform: process.platform,
+        phase: "server-starting",
+        startupId: desktopStartupId,
+      });
+    }
     console.log("[desktop] 启动 openZetcX Server...");
     await startServer();
+    if (process.platform === "win32") {
+      markGpuStartupPhase({
+        hanakoHome,
+        platform: process.platform,
+        phase: "server-ready",
+        startupId: desktopStartupId,
+      });
+    }
     console.log(`[desktop] Server 就绪，端口: ${serverPort}`);
     monitorServer();
     setupBrowserCommands();
@@ -3110,20 +3391,44 @@ app.whenReady().then(async () => {
     if (isSetupComplete()) {
       // 已完成配置：直接创建主窗口
       createMainWindow();
+      if (process.platform === "win32") {
+        markGpuStartupPhase({
+          hanakoHome,
+          platform: process.platform,
+          phase: "main-window-created",
+          startupId: desktopStartupId,
+        });
+      }
     } else if (hasExistingConfig()) {
       // 老用户：已有 api_key，跳过填写直接看教程
       console.log("[desktop] 检测到已有配置，跳到教程页");
       createOnboardingWindow({ skipToTutorial: "1" });
+      if (process.platform === "win32") {
+        markGpuStartupPhase({
+          hanakoHome,
+          platform: process.platform,
+          phase: "onboarding-window-created",
+          startupId: desktopStartupId,
+        });
+      }
     } else {
       // 全新用户：完整 onboarding 向导
       console.log("[desktop] 首次启动，显示 Onboarding 向导");
       createOnboardingWindow();
+      if (process.platform === "win32") {
+        markGpuStartupPhase({
+          hanakoHome,
+          platform: process.platform,
+          phase: "onboarding-window-created",
+          startupId: desktopStartupId,
+        });
+      }
     }
 
     // 5. 后台检查更新（不阻塞启动）
     // 从 preferences.json 同步更新通道
     try {
-      const prefsPath = path.join(openZetcXHome, "user", "preferences.json");
+      const prefsPath = path.join(hanakoHome, "user", "preferences.json");
       if (fs.existsSync(prefsPath)) {
         const prefs = JSON.parse(fs.readFileSync(prefsPath, "utf-8"));
         if (prefs.update_channel) setUpdateChannel(prefs.update_channel);
@@ -3132,6 +3437,14 @@ app.whenReady().then(async () => {
     checkForUpdates().catch(() => {});
   } catch (err) {
     console.error("[desktop] 启动失败:", err.message);
+    if (process.platform === "win32") {
+      markGpuStartupFailed({
+        hanakoHome,
+        platform: process.platform,
+        startupId: desktopStartupId,
+        reason: err.message || "startup-failed",
+      });
+    }
     // 写入 crash.log 并获取详细日志
     const crashInfo = writeCrashLog(err.message);
     // 截取最后 800 字符放进 dialog（太长会显示不全）
@@ -3141,7 +3454,7 @@ app.whenReady().then(async () => {
       mt("dialog.launchFailedBody", {
         version: app?.getVersion?.() || "unknown",
         detail: tail,
-        logPath: path.join(openZetcXHome, "crash.log"),
+        logPath: path.join(hanakoHome, "crash.log"),
       })
     );
     forceQuitApp = true;
@@ -3233,7 +3546,7 @@ async function shutdownServer() {
   }
   // 清理 server-info.json，防止更新后新版 Electron 误连旧 server
   if (removeServerInfo) {
-    try { fs.unlinkSync(path.join(openZetcXHome, "server-info.json")); } catch {}
+    try { fs.unlinkSync(path.join(hanakoHome, "server-info.json")); } catch {}
   } else {
     console.warn("[desktop] shutdownServer: 保留 server-info.json，供下次启动识别残留 server");
   }

@@ -16,13 +16,13 @@ describe("login item settings", () => {
   it("uses a dedicated login-start argument on Windows so startup can stay hidden", async () => {
     const { START_AT_LOGIN_ARG, getLoginItemOptions, wasLaunchedAtLogin } = await loadModule();
 
-    expect(getLoginItemOptions("win32", "C:\\Program Files\\Hanako\\Hanako.exe")).toEqual({
-      path: "C:\\Program Files\\Hanako\\Hanako.exe",
+    expect(getLoginItemOptions("win32", "C:\\Program Files\\openZetcX\\openZetcX.exe")).toEqual({
+      path: "C:\\Program Files\\openZetcX\\openZetcX.exe",
       args: [START_AT_LOGIN_ARG],
     });
     expect(wasLaunchedAtLogin({
       platform: "win32",
-      argv: ["Hanako.exe", START_AT_LOGIN_ARG],
+      argv: ["openZetcX.exe", START_AT_LOGIN_ARG],
       loginItemSettings: {},
     })).toBe(true);
   });
@@ -32,7 +32,7 @@ describe("login item settings", () => {
 
     expect(wasLaunchedAtLogin({
       platform: "darwin",
-      argv: ["Hanako"],
+      argv: ["openZetcX"],
       loginItemSettings: { wasOpenedAtLogin: true },
     })).toBe(true);
   });
@@ -41,7 +41,7 @@ describe("login item settings", () => {
     const { getAutoLaunchStatus } = await loadModule();
     const app = createAppMock();
 
-    expect(getAutoLaunchStatus({ app, platform: "linux", argv: [], execPath: "/opt/Hanako/hanako" })).toEqual({
+    expect(getAutoLaunchStatus({ app, platform: "linux", argv: [], execPath: "/opt/openZetcX/hanako" })).toEqual({
       supported: false,
       openAtLogin: false,
       openedAtLogin: false,
@@ -58,17 +58,17 @@ describe("login item settings", () => {
       app,
       platform: "win32",
       argv: [],
-      execPath: "C:\\Hanako\\Hanako.exe",
+      execPath: "C:\\openZetcX\\openZetcX.exe",
       enabled: true,
     });
 
     expect(app.setLoginItemSettings).toHaveBeenCalledWith({
       openAtLogin: true,
-      path: "C:\\Hanako\\Hanako.exe",
+      path: "C:\\openZetcX\\openZetcX.exe",
       args: [START_AT_LOGIN_ARG],
     });
     expect(app.getLoginItemSettings).toHaveBeenCalledWith({
-      path: "C:\\Hanako\\Hanako.exe",
+      path: "C:\\openZetcX\\openZetcX.exe",
       args: [START_AT_LOGIN_ARG],
     });
     expect(status).toMatchObject({

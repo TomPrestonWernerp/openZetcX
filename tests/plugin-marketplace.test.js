@@ -1,4 +1,5 @@
 import fs from "fs";
+import crypto from "crypto";
 import os from "os";
 import path from "path";
 import { describe, expect, it } from "vitest";
@@ -6,6 +7,7 @@ import {
   DEFAULT_OFFICIAL_PLUGIN_MARKETPLACE_URL,
   PluginMarketplace,
   createDefaultPluginMarketplace,
+  getMarketplacePluginVersionState,
 } from "../lib/plugin-marketplace.js";
 
 describe("PluginMarketplace", () => {
@@ -63,7 +65,7 @@ describe("PluginMarketplace", () => {
     });
   });
 
-  it("uses the official OH-Plugins marketplace URL by default", async () => {
+  it("uses the project marketplace URL by default", async () => {
     const marketplace = createDefaultPluginMarketplace({
       env: {},
       fetchImpl: async (url) => {
@@ -82,9 +84,23 @@ describe("PluginMarketplace", () => {
     });
   });
 
+  it("keeps the repository marketplace installable from openZetcX release packages", () => {
+    const catalog = JSON.parse(fs.readFileSync(new URL("../marketplace.json", import.meta.url), "utf-8"));
+    expect(catalog.plugins.length).toBeGreaterThan(0);
+    for (const plugin of catalog.plugins) {
+      expect(plugin.repository).toBe("https://github.com/TomPrestonWernerp/openZetcX");
+      expect(plugin.distribution).toMatchObject({ kind: "release" });
+      expect(plugin.distribution.packageUrl).toContain("raw.githubusercontent.com/TomPrestonWernerp/openZetcX/main/");
+      expect(plugin.distribution.sha256).toMatch(/^[a-f0-9]{64}$/);
+      const packagePath = new URL(`../${new URL(plugin.distribution.packageUrl).pathname.split("/main/")[1]}`, import.meta.url);
+      const body = fs.readFileSync(packagePath);
+      expect(crypto.createHash("sha256").update(body).digest("hex")).toBe(plugin.distribution.sha256);
+    }
+  });
+
   it("resolves readmePath relative to URL marketplaces", async () => {
     const marketplace = new PluginMarketplace({
-      indexUrl: "https://raw.githubusercontent.com/liliMozi/OH-Plugins/main/marketplace.json",
+      indexUrl: "https://raw.githubusercontent.com/TomPrestonWernerp/openZetcX/main/marketplace.json",
       fetchImpl: async (url) => {
         if (url.endsWith("/marketplace.json")) {
           return Response.json({
@@ -106,14 +122,112 @@ describe("PluginMarketplace", () => {
             }],
           });
         }
-        expect(url).toBe("https://raw.githubusercontent.com/liliMozi/OH-Plugins/main/plugins/demo/README.md");
+        expect(url).toBe("https://raw.githubusercontent.com/TomPrestonWernerp/openZetcX/main/plugins/demo/README.md");
         return new Response("# Demo from URL");
       },
     });
 
     const data = await marketplace.load();
     expect(data.plugins[0].readmePath).toBeNull();
-    expect(data.plugins[0].readmeUrl).toBe("https://raw.githubusercontent.com/liliMozi/OH-Plugins/main/plugins/demo/README.md");
+    expect(data.plugins[0].readmeUrl).toBe("https://raw.githubusercontent.com/TomPrestonWernerp/openZetcX/main/plugins/demo/README.md");
     await expect(marketplace.getReadme("demo")).resolves.toBe("# Demo from URL");
+  });
+
+  it("normalizes catalog versions and selects the highest version compatible with the app", async () => {
+    const marketplace = new PluginMarketplace({
+      indexUrl: "https://example.com/marketplace.json",
+      fetchImpl: async () => Response.json({
+        schemaVersion: 1,
+        plugins: [{
+          id: "demo",
+          name: "Demo",
+          publisher: "Hana",
+          version: "2.0.0",
+          description: "Demo plugin",
+          trust: "restricted",
+          versions: [
+            {
+              version: "2.0.0",
+              compatibility: { minAppVersion: "99.0.0" },
+              distribution: { kind: "release", packageUrl: "https://example.com/demo-2.zip", sha256: "2".repeat(64) },
+            },
+            {
+              version: "1.5.0",
+              compatibility: { minAppVersion: "0.180.0" },
+              distribution: { kind: "release", packageUrl: "https://example.com/demo-1.5.zip", sha256: "1".repeat(64) },
+            },
+            {
+              version: "1.0.0",
+              compatibility: { minAppVersion: "0.170.0" },
+              distribution: { kind: "release", packageUrl: "https://example.com/demo-1.zip", sha256: "0".repeat(64) },
+            },
+          ],
+          readme: "# Demo",
+        }],
+      }),
+    });
+
+    const data = await marketplace.load();
+    const plugin = data.plugins[0];
+    const state = getMarketplacePluginVersionState(plugin, {
+      appVersion: "0.190.2",
+      installedVersion: "1.0.0",
+    });
+
+    expect(plugin.version).toBe("2.0.0");
+    expect(plugin.versions.map((item) => item.version)).toEqual(["2.0.0", "1.5.0", "1.0.0"]);
+    expect(state).toMatchObject({
+      latestVersion: "2.0.0",
+      selectedVersion: "1.5.0",
+      installedVersion: "1.0.0",
+      updateAvailable: true,
+      downgrade: false,
+      compatible: true,
+      installAction: "update",
+    });
+    expect(state.selectedDistribution.packageUrl).toBe("https://example.com/demo-1.5.zip");
+  });
+
+  it("marks compatible downgrades and incompatible plugins explicitly", async () => {
+    const plugin = {
+      id: "demo",
+      name: "Demo",
+      version: "2.0.0",
+      versions: [
+        {
+          version: "2.0.0",
+          compatibility: { minAppVersion: "99.0.0" },
+          distribution: { kind: "release", packageUrl: "https://example.com/demo-2.zip", sha256: "2".repeat(64) },
+        },
+        {
+          version: "1.0.0",
+          compatibility: { minAppVersion: "0.170.0" },
+          distribution: { kind: "release", packageUrl: "https://example.com/demo-1.zip", sha256: "1".repeat(64) },
+        },
+      ],
+    };
+
+    expect(getMarketplacePluginVersionState(plugin, {
+      appVersion: "0.190.2",
+      installedVersion: "1.5.0",
+    })).toMatchObject({
+      latestVersion: "2.0.0",
+      selectedVersion: "1.0.0",
+      downgrade: true,
+      updateAvailable: false,
+      compatible: true,
+      installAction: "downgrade",
+    });
+
+    expect(getMarketplacePluginVersionState(plugin, {
+      appVersion: "0.100.0",
+      installedVersion: null,
+    })).toMatchObject({
+      latestVersion: "2.0.0",
+      selectedVersion: null,
+      compatible: false,
+      canInstall: false,
+      installAction: "incompatible",
+    });
   });
 });

@@ -13,6 +13,8 @@ const mocks = vi.hoisted(() => ({
   insertContent: vi.fn(),
   setContent: vi.fn(),
   chainInserted: [] as unknown[],
+  ensureSession: vi.fn(async () => true),
+  loadSessions: vi.fn(),
   hanaFetch: vi.fn(),
   wsSend: vi.fn(),
 }));
@@ -48,7 +50,7 @@ vi.mock('@tiptap/react', () => ({
       },
       chain: () => chain,
       getText: () => mocks.editorText,
-      getJSON: () => editorJsonForText(''),
+      getJSON: () => editorJsonForText(mocks.editorText),
       isDestroyed: false,
       state: { tr: { setMeta: vi.fn(() => ({})) } },
       view: { dispatch: vi.fn() },
@@ -95,8 +97,8 @@ vi.mock('../../hooks/use-hana-fetch', () => ({
 }));
 
 vi.mock('../../stores/session-actions', () => ({
-  ensureSession: vi.fn(async () => true),
-  loadSessions: vi.fn(),
+  ensureSession: mocks.ensureSession,
+  loadSessions: mocks.loadSessions,
 }));
 
 vi.mock('../../stores/desk-actions', () => ({
@@ -133,7 +135,11 @@ vi.mock('../../components/input/InputContextRow', () => ({
 }));
 
 vi.mock('../../components/input/InputControlBar', () => ({
-  InputControlBar: () => React.createElement('button', { type: 'button' }, 'send'),
+  InputControlBar: ({ onAttach }: { onAttach: () => void }) => React.createElement(
+    'button',
+    { type: 'button', 'aria-label': 'attach', onClick: onAttach },
+    'send',
+  ),
 }));
 
 vi.mock('../../components/input/SessionConfirmationPrompt', () => ({
@@ -174,7 +180,7 @@ vi.mock('../../services/stream-resume', () => ({
   updateSessionStreamMeta: vi.fn(),
 }));
 
-function seedInputState() {
+function seedInputState(overrides: Partial<ReturnType<typeof useStore.getState>> = {}) {
   useStore.setState({
     currentSessionPath: '/session/input.jsonl',
     connected: true,
@@ -203,12 +209,28 @@ function seedInputState() {
     modelSwitching: false,
     welcomeVisible: false,
     agentYuan: 'hanako',
+    ...overrides,
   } as never);
 }
 
 function tiptapPasteHandler(): ((view: unknown, event: ClipboardEvent) => boolean | void) | undefined {
   const editorProps = mocks.editorOptions?.editorProps as Record<string, unknown> | undefined;
   return editorProps?.handlePaste as ((view: unknown, event: ClipboardEvent) => boolean | void) | undefined;
+}
+
+function latestEditorOptions(): Record<string, unknown> | undefined {
+  return mocks.editorOptions;
+}
+
+function tiptapKeyDownHandler(): ((view: unknown, event: KeyboardEvent) => boolean | void) | undefined {
+  const editorProps = mocks.editorOptions?.editorProps as Record<string, unknown> | undefined;
+  return editorProps?.handleKeyDown as ((view: unknown, event: KeyboardEvent) => boolean | void) | undefined;
+}
+
+function tiptapBeforeInputHandler(): ((view: unknown, event: InputEvent) => boolean | void) | undefined {
+  const editorProps = mocks.editorOptions?.editorProps as Record<string, unknown> | undefined;
+  const domEvents = editorProps?.handleDOMEvents as Record<string, unknown> | undefined;
+  return domEvents?.beforeinput as ((view: unknown, event: InputEvent) => boolean | void) | undefined;
 }
 
 describe('InputArea paste and slash menu behavior', () => {
@@ -222,6 +244,18 @@ describe('InputArea paste and slash menu behavior', () => {
     seedInputState();
     mocks.hanaFetch.mockResolvedValue(new Response('{}', { status: 200 }));
     window.platform = {} as typeof window.platform;
+  });
+
+  it('keeps desktop editor creation immediate while deferring mobile editor creation until after mount', () => {
+    const { unmount } = render(React.createElement(InputArea));
+
+    expect(latestEditorOptions()?.immediatelyRender).toBe(true);
+
+    unmount();
+    mocks.editorOptions = undefined;
+    render(<InputArea surface="mobile" />);
+
+    expect(latestEditorOptions()?.immediatelyRender).toBe(false);
   });
 
   it('consumes a rich URL paste through the TipTap paste hook before the default editor paste runs', () => {
@@ -271,5 +305,102 @@ describe('InputArea paste and slash menu behavior', () => {
       attrs: { name: 'zz-second' },
     });
     expect(mocks.wsSend).not.toHaveBeenCalled();
+  });
+
+  it('handles welcome Enter inside TipTap before the editor inserts a newline', async () => {
+    seedInputState({
+      currentSessionPath: null,
+      pendingNewSession: true,
+      welcomeVisible: true,
+    });
+    mocks.editorText = '你好 Hana';
+    render(React.createElement(InputArea));
+
+    const preventDefault = vi.fn();
+    const event = new KeyboardEvent('keydown', { key: 'Enter', bubbles: true });
+    Object.defineProperty(event, 'preventDefault', { value: preventDefault });
+
+    const handled = tiptapKeyDownHandler()?.(null, event);
+
+    expect(handled).toBe(true);
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(mocks.ensureSession).toHaveBeenCalledTimes(1);
+      expect(mocks.loadSessions).toHaveBeenCalledTimes(1);
+      expect(mocks.wsSend).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('maps mobile insertParagraph beforeinput to the same send path as Enter', async () => {
+    seedInputState({
+      currentSessionPath: null,
+      pendingNewSession: true,
+      welcomeVisible: true,
+    });
+    mocks.editorText = '手机端回车发送';
+    render(<InputArea surface="mobile" />);
+
+    const preventDefault = vi.fn();
+    const handled = tiptapBeforeInputHandler()?.(null, {
+      inputType: 'insertParagraph',
+      isComposing: false,
+      defaultPrevented: false,
+      preventDefault,
+    } as unknown as InputEvent);
+
+    expect(handled).toBe(true);
+    expect(preventDefault).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(mocks.ensureSession).toHaveBeenCalledTimes(1);
+      expect(mocks.loadSessions).toHaveBeenCalledTimes(1);
+      expect(mocks.wsSend).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it('uploads mobile file-picker attachments through browser File API', async () => {
+    const uploadJson = {
+      uploads: [{
+        fileId: 'sf_mobile_image',
+        dest: '/hana/session-files/mobile.png',
+        name: 'mobile.png',
+        isDirectory: false,
+      }],
+    };
+    mocks.hanaFetch.mockImplementation(async (path: string) => {
+      if (path === '/api/upload-blob') {
+        return new Response(JSON.stringify(uploadJson), { status: 200 });
+      }
+      return new Response('{}', { status: 200 });
+    });
+    window.platform = { selectFiles: vi.fn(async () => []) } as unknown as typeof window.platform;
+    render(<InputArea surface="mobile" />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'attach' }));
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement | null;
+    expect(input).toBeTruthy();
+    const file = new File([new Uint8Array([1, 2, 3])], 'mobile.png', { type: 'image/png' });
+    fireEvent.change(input!, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect(mocks.hanaFetch).toHaveBeenCalledWith('/api/upload-blob', expect.objectContaining({
+        method: 'POST',
+        body: expect.any(String),
+      }));
+    });
+    const body = JSON.parse(String(mocks.hanaFetch.mock.calls.find(([path]) => path === '/api/upload-blob')?.[1]?.body));
+    expect(body).toMatchObject({
+      name: 'mobile.png',
+      mimeType: 'image/png',
+      sessionPath: '/session/input.jsonl',
+    });
+    expect(body.base64Data).toBe('AQID');
+    expect(useStore.getState().attachedFiles[0]).toMatchObject({
+      fileId: 'sf_mobile_image',
+      path: '/hana/session-files/mobile.png',
+      name: 'mobile.png',
+      isDirectory: false,
+      base64Data: 'AQID',
+      mimeType: 'image/png',
+    });
   });
 });

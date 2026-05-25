@@ -4,7 +4,7 @@
  * Electron 环境下这些操作走 IPC（preload.cjs），
  * Web / 云部署环境下前端通过这些 HTTP 端点读取文件。
  *
- * 安全：路径限定在 ~/.openZetcX/ 和 desk 工作空间内。
+ * 安全：路径限定在 ~/.openZetcX/ 和 desk 工作台内。
  */
 
 import fs from "fs";
@@ -56,12 +56,12 @@ function resolveAllowedPath(filePath, allowedRoots) {
 
 export function createFsRoute(engine) {
   const route = new Hono();
-  const openZetcXHome = path.resolve(engine.openZetcXHome);
+  const hanakoHome = path.resolve(engine.openZetcXHome);
 
   // 收集允许的根目录
   function getAllowedRoots(c) {
-    const roots = [openZetcXHome];
-    // desk 工作空间目录（用户可能配在 ~/.openZetcX 外面）
+    const roots = [hanakoHome];
+    // desk 工作台目录（用户可能配在 ~/.openZetcX 外面）
     const agent = resolveAgent(engine, c);
     const deskHome = agent?.config?.desk?.home_folder || engine.getHomeCwd?.(agent?.id);
     if (deskHome) roots.push(path.resolve(deskHome));

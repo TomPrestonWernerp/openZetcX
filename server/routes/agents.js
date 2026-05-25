@@ -42,6 +42,14 @@ import {
   hasInlineProviderCredentialPatch,
 } from "./provider-credentials.js";
 import { mergeWorkspaceHistory } from "../../shared/workspace-history.js";
+import {
+  collectSecretPatchPaths,
+  maskObjectSecrets,
+  maskSecretValue,
+  resolveSecretPatch,
+} from "../../shared/secret-custody.js";
+import { denySecretMutationWithoutScope, denyWithoutScope } from "../http/capability-guard.js";
+import { recordSecurityAuditEvent } from "../http/security-audit.js";
 
 // ── 工具函数 ──
 
@@ -51,6 +59,12 @@ function agentDir(engine, id) {
 
 function hasOwn(value, key) {
   return !!value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, key);
+}
+
+function hasProviderMutationPatch(partial) {
+  if (!partial || typeof partial !== "object") return false;
+  if (hasOwn(partial, "providers")) return true;
+  return ["api", "embedding_api", "utility_api"].some((key) => hasInlineProviderCredentialPatch(partial[key]));
 }
 
 function getGlobalValue(globalFields, key) {
@@ -182,6 +196,13 @@ function emitAgentConfigAppEvents(engine, agentId, { globalFields, agentPartial,
   if (editor !== undefined) {
     emitAppEvent(engine, "editor-typography-changed", {
       editor: typeof engine.getEditor === "function" ? engine.getEditor() : editor,
+    });
+  }
+
+  const networkProxy = getGlobalValue(globalFields, "network_proxy");
+  if (networkProxy !== undefined) {
+    emitAppEvent(engine, "network-proxy-changed", {
+      network_proxy: typeof engine.getNetworkProxy === "function" ? engine.getNetworkProxy() : networkProxy,
     });
   }
 
@@ -402,7 +423,6 @@ export function createAgentsRoute(engine) {
       // 直接解析 YAML，不走 loadConfig 全局缓存
       const config = YAML.load(await fs.readFile(configPath, "utf-8")) || {};
 
-      // API key 不做掩码（本地应用，前端用 type="password" 控制显隐）
       normalizeExperienceConfigForResponse(config);
 
       // 附带 raw 结构
@@ -424,7 +444,7 @@ export function createAgentsRoute(engine) {
           providerEntries[name] = {
             base_url: p.base_url || entry?.baseUrl || "",
             api: p.api || entry?.api || "",
-            api_key: p.api_key || "",
+            api_key: maskSecretValue(p.api_key || ""),
             models: p.models || [],
             model_count: (p.models || []).length,
           };
@@ -453,7 +473,7 @@ export function createAgentsRoute(engine) {
           .filter(Boolean);
       }
 
-      return c.json(config);
+      return c.json(maskObjectSecrets(config));
     } catch (err) {
       return c.json({ error: err.message }, 500);
     }
@@ -469,6 +489,15 @@ export function createAgentsRoute(engine) {
       if (!partial || typeof partial !== "object") {
         return c.json({ error: "invalid JSON body" }, 400);
       }
+      const settingsDenied = denyWithoutScope(c, "settings.write");
+      if (settingsDenied) return settingsDenied;
+      if (hasProviderMutationPatch(partial)) {
+        const providerDenied = denyWithoutScope(c, "providers.manage");
+        if (providerDenied) return providerDenied;
+      }
+      const secretFields = collectSecretPatchPaths(partial, ["api_key"]);
+      const secretDenied = denySecretMutationWithoutScope(c, secretFields);
+      if (secretDenied) return secretDenied;
 
       // Whitelist check: tools.disabled may only contain OPTIONAL_TOOL_NAMES.
       // Blocks attempts to disable core/standard tools via hand-crafted requests.
@@ -501,11 +530,16 @@ export function createAgentsRoute(engine) {
       // providers 块 → 全局 added-models.yaml
       let providersChanged = false;
       if (agentPartial.providers) {
+        const rawProviders = engine.providerRegistry.getAllProvidersRaw?.() || {};
         for (const [name, data] of Object.entries(agentPartial.providers)) {
           if (data === null) {
             engine.providerRegistry.removeProvider(name);
           } else {
-            engine.providerRegistry.saveProvider(name, data);
+            engine.providerRegistry.saveProvider(name, resolveSecretPatch({
+              patch: data,
+              existing: rawProviders[name] || {},
+              secretKeys: ["api_key"],
+            }));
           }
         }
         delete agentPartial.providers;
@@ -521,6 +555,7 @@ export function createAgentsRoute(engine) {
           const { provider: provName, update: provUpdate } = buildInlineProviderCredentialUpdate(
             block,
             agentCfg[blockName]?.provider || "",
+            (provider) => engine.providerRegistry?.getAllProvidersRaw?.()?.[provider] || {},
           );
           if (!provName) {
             return c.json({ error: `${blockName}.provider is required when saving credentials` }, 400);
@@ -544,6 +579,12 @@ export function createAgentsRoute(engine) {
 
       if (Object.keys(agentPartial).length === 0) {
         emitAgentConfigAppEvents(engine, id, { globalFields, agentPartial, providersChanged });
+        recordSecurityAuditEvent(c, engine, {
+          action: "settings.agent.config.update",
+          target: `agents.${id}.config`,
+          secretFields,
+          metadata: { agentId: id },
+        });
         return c.json({ ok: true });
       }
 
@@ -586,6 +627,12 @@ export function createAgentsRoute(engine) {
         engine.setMemoryMasterEnabled(id, agentPartial.memory.enabled !== false);
       }
       emitAgentConfigAppEvents(engine, id, { globalFields, agentPartial, providersChanged });
+      recordSecurityAuditEvent(c, engine, {
+        action: "settings.agent.config.update",
+        target: `agents.${id}.config`,
+        secretFields,
+        metadata: { agentId: id },
+      });
       return c.json({ ok: true });
     } catch (err) {
       return c.json({ error: err.message }, err.statusCode || 500);
@@ -623,7 +670,7 @@ export function createAgentsRoute(engine) {
       }
       await fs.writeFile(path.join(agentDir(engine, id), "identity.md"), content, "utf-8");
       engine.invalidateAgentListCache();
-      await engine.updateConfig({}, { agentId: id });
+      await engine.updateConfig({}, { agentId: id, refreshDescription: true });
       emitAppEvent(engine, "agent-updated", { agentId: id });
       return c.json({ ok: true });
     } catch (err) {
@@ -661,7 +708,7 @@ export function createAgentsRoute(engine) {
         return c.json({ error: "content must be a string" }, 400);
       }
       await fs.writeFile(path.join(agentDir(engine, id), "ishiki.md"), content, "utf-8");
-      await engine.updateConfig({}, { agentId: id });
+      await engine.updateConfig({}, { agentId: id, refreshDescription: true });
       emitAppEvent(engine, "agent-updated", { agentId: id });
       return c.json({ ok: true });
     } catch (err) {

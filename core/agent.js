@@ -35,8 +35,14 @@ import { createCheckDeferredTool } from "../lib/tools/check-deferred-tool.js";
 import { createWaitTool } from "../lib/tools/wait-tool.js";
 import { createStopTaskTool } from "../lib/tools/stop-task-tool.js";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.js";
+import { createTerminalTool } from "../lib/tools/terminal-tool.js";
 import { runCompatChecks } from "../lib/compat/index.js";
 import { getPlatformPromptNote } from "./platform-prompt.js";
+
+function yuanTemplateCandidates(yuanType) {
+  const key = String(yuanType || "openZetcX").trim() || "openZetcX";
+  return key === "hanako" ? ["openZetcX", "hanako"] : [key];
+}
 
 export class Agent {
   /**
@@ -94,6 +100,7 @@ export class Agent {
     this._enabledSkills = [];
     this._systemPrompt = "";
     this._descriptionRefreshHandler = null;
+    this._runtimeInitialized = false;
 
     // Desk 系统（与 memory 完全独立）
     this._deskManager = null;
@@ -109,6 +116,7 @@ export class Agent {
     this._notifyTool = null;
     this._stopTaskTool = null;
     this._currentStatusTool = null;
+    this._terminalTool = null;
 
     /**
      * 外部回调注入（由 AgentManager._createAgentInstance 填充）。
@@ -143,6 +151,8 @@ export class Agent {
   }
 
   async init(log = () => {}, sharedModels = {}, resolveModel = null) {
+    if (this._runtimeInitialized) return;
+
     // 0. 兼容性检查（目录、数据库、配置文件）
     await runCompatChecks({
       agentDir: this.agentDir,
@@ -246,6 +256,7 @@ export class Agent {
         getResolvedMemoryModel: () => this._resolveModel(this._memoryModel, this._config),
         getMemoryMasterEnabled: () => this._memoryMasterEnabled,
         isSessionMemoryEnabled: (sessionPath) => this.isSessionMemoryEnabledFor(sessionPath),
+        getTimezone: () => this._cb?.getTimezone?.() || Intl.DateTimeFormat().resolvedOptions().timeZone,
         onCompiled: () => {
           // _systemPrompt 是非 session 路径（巡检/cron/集群/DM/bridge owner 新建）
           // 共享的 cache，必须按 master 构建，不被 per-session 开关污染。
@@ -262,15 +273,8 @@ export class Agent {
       });
       log(`  [agent] 4. memoryTicker 创建完成`);
 
-      // 5. 后台跑首次 tick（不阻塞启动，memory.md 已有上次编译结果）
-      log(`  [agent] 5. 后台 tick...`);
-      this._memoryTicker.tick().then(() => {
-        log(`✿ 记忆整理完成`);
-      }).catch((err) => {
-        console.error(`[记忆] 启动 tick 出错：${err.message}`);
-      });
-
-      // 6. 启动定时调度
+      // 6. 启动定时调度。首次维护交给 AgentManager 的后台队列，
+      // 避免 agent runtime 初始化时直接抢前台 CPU。
       this._memoryTicker.start();
     } else {
       console.warn(`[agent] ⚠ 未配置 utility 模型，记忆系统暂不可用（用户可在设置中配置后重启）`);
@@ -352,6 +356,12 @@ export class Agent {
       getCurrentModel: () => this._cb?.getEngine?.()?.currentModel || null,
       getUiContext: (sessionPath) => this._cb?.getEngine?.()?.getUiContext?.(sessionPath) || null,
       listSessionFiles: (sessionPath) => this._cb?.getEngine?.()?.listSessionFiles?.(sessionPath) || [],
+      getBridgeContext: (sessionPath) => this._cb?.getEngine?.()?.getBridgeContextForSessionPath?.(sessionPath, { agentId: this.id }) || null,
+    });
+    this._terminalTool = createTerminalTool({
+      getTerminalSessionManager: () => this._cb?.getTerminalSessionManager?.(),
+      getAgentId: () => this.id,
+      getCwd: () => this._cb?.getCwd?.() || this.agentDir,
     });
 
     // 10. 设置修改工具
@@ -453,6 +463,7 @@ export class Agent {
       },
       resolveUtilityModel: () => this._cb?.getCurrentModelId?.() || null,
       getDeferredStore: () => this._cb?.getDeferredResults?.(),
+      getSubagentRunStore: () => this._cb?.getSubagentRunStore?.(),
       getTaskRegistry: () => this._cb?.getTaskRegistry?.(),
       setSubagentController: (id, ctrl) => this._cb?.setSubagentController?.(id, ctrl),
       removeSubagentController: (id) => this._cb?.removeSubagentController?.(id),
@@ -470,6 +481,10 @@ export class Agent {
     // 12. 组装 system prompt（按 master 构建，与 per-session 开关解耦）
     log(`  [agent] 9. buildSystemPrompt...`);
     this._systemPrompt = this.buildSystemPrompt({ forceMemoryEnabled: this._memoryMasterEnabled });
+    this._runtimeInitialized = true;
+    if (this._memoryTicker) {
+      this._cb?.scheduleMemoryMaintenance?.(this.id, "runtime-init");
+    }
     log(`  [agent] init 全部完成`);
   }
 
@@ -479,6 +494,7 @@ export class Agent {
   async dispose() {
     await this._memoryTicker?.stop();
     this._factStore?.close();
+    this._runtimeInitialized = false;
   }
 
   /**
@@ -493,6 +509,7 @@ export class Agent {
     const cleanup = () => {
       this._memoryTicker = null;
       this._factStore = null;
+      this._runtimeInitialized = false;
       this._disposing = false;
       factStore?.close();
     };
@@ -545,6 +562,7 @@ export class Agent {
   get publicIshiki() { return this._readPublicIshiki(); }
   get utilityModel() { return this._utilityModel; }
   get memoryModel() { return this._memoryModel; }
+  get runtimeInitialized() { return this._runtimeInitialized; }
   /**
    * 当前记忆模型凭证（现场 resolve，不缓存）
    * 用户改完 provider key/url/api 后这里立即反映最新值
@@ -614,6 +632,7 @@ export class Agent {
       this._subagentTool,
       this._checkDeferredTool,
       this._currentStatusTool,
+      this._terminalTool,
       createWaitTool(),
     ].filter(Boolean);
   }
@@ -695,7 +714,7 @@ export class Agent {
    * 更新配置（写入 config.yaml 并刷新受影响的模块）
    * @param {object} partial - 要合并的配置片段
    */
-  updateConfig(partial) {
+  updateConfig(partial, options = {}) {
     // 写入磁盘 + 重新加载
     saveConfig(this.configPath, partial);
     this._config = loadConfig(this.configPath);
@@ -729,8 +748,8 @@ export class Agent {
     // 重建 system prompt（按 master 构建，与 per-session 开关解耦）
     this._systemPrompt = this.buildSystemPrompt({ forceMemoryEnabled: this._memoryMasterEnabled });
 
-    // identity / ishiki / yuan 变化时刷新 description
-    if (partial.agent?.yuan) {
+    // identity / ishiki 文件变化由调用方显式传入 refreshDescription；yuan 变化来自 config patch。
+    if (options.refreshDescription || partial.agent?.yuan) {
       this._descriptionRefreshHandler?.();
     }
   }
@@ -749,9 +768,10 @@ export class Agent {
     const readFile = (p) => safeReadFile(p, "");
     const langDir = isZh ? "" : "en/";
     const yuanType = this._config?.agent?.yuan || "openZetcX";
+    const yuanKeys = yuanTemplateCandidates(yuanType);
     const identityMd = readFile(path.join(this.agentDir, "identity.md"))
-      || readFile(path.join(this.productDir, "identity-templates", `${langDir}${yuanType}.md`))
-      || readFile(path.join(this.productDir, "identity-templates", `${yuanType}.md`))
+      || yuanKeys.map((key) => readFile(path.join(this.productDir, "identity-templates", `${langDir}${key}.md`))).find(Boolean)
+      || yuanKeys.map((key) => readFile(path.join(this.productDir, "identity-templates", `${key}.md`))).find(Boolean)
       || readFile(path.join(this.productDir, "identity.example.md"));
     const yuanMd = this._readYuan();
     const ishikiMd = readFile(path.join(this.agentDir, "ishiki.md"))
@@ -761,13 +781,39 @@ export class Agent {
     return fill(identityMd) + "\n\n" + fill(yuanMd || "") + "\n\n" + fill(ishikiMd);
   }
 
+  /** 返回花名册描述生成用的人格来源，不包含 yuan 输出协议。 */
+  get descriptionSource() {
+    const isZh = String(this._config.locale || "").startsWith("zh");
+    const fill = (text) => text
+      .replace(/\{\{userName\}\}/g, this.userName)
+      .replace(/\{\{agentName\}\}/g, this.agentName)
+      .replace(/\{\{agentId\}\}/g, this.id);
+    const readFile = (p) => safeReadFile(p, "");
+    const langDir = isZh ? "" : "en/";
+    const yuanType = this._config?.agent?.yuan || "hanako";
+    const yuanKeys = yuanTemplateCandidates(yuanType);
+    const identityMd = readFile(path.join(this.agentDir, "identity.md"))
+      || yuanKeys.map((key) => readFile(path.join(this.productDir, "identity-templates", `${langDir}${key}.md`))).find(Boolean)
+      || yuanKeys.map((key) => readFile(path.join(this.productDir, "identity-templates", `${key}.md`))).find(Boolean)
+      || readFile(path.join(this.productDir, "identity.example.md"));
+    const ishikiMd = readFile(path.join(this.agentDir, "ishiki.md"))
+      || yuanKeys.map((key) => readFile(path.join(this.productDir, "ishiki-templates", `${langDir}${key}.md`))).find(Boolean)
+      || yuanKeys.map((key) => readFile(path.join(this.productDir, "ishiki-templates", `${key}.md`))).find(Boolean)
+      || readFile(path.join(this.productDir, "ishiki.example.md"));
+    return fill(identityMd) + "\n\n" + fill(ishikiMd);
+  }
+
   /** 读取 yuan 模板（能力定义） */
   _readYuan() {
     const yuanType = this._config?.agent?.yuan || "openZetcX";
     const isZh = String(this._config.locale || "").startsWith("zh");
     const langDir = isZh ? "" : "en/";
-    return safeReadFile(path.join(this.productDir, "yuan", `${langDir}${yuanType}.md`), "")
-      || safeReadFile(path.join(this.productDir, "yuan", `${yuanType}.md`), "");
+    for (const key of yuanTemplateCandidates(yuanType)) {
+      const content = safeReadFile(path.join(this.productDir, "yuan", `${langDir}${key}.md`), "")
+        || safeReadFile(path.join(this.productDir, "yuan", `${key}.md`), "");
+      if (content) return content;
+    }
+    return "";
   }
 
   /** 读取对外意识（public-ishiki.md），guest 会话使用 */
@@ -778,11 +824,12 @@ export class Agent {
       .replace(/\{\{agentName\}\}/g, this.agentName)
       .replace(/\{\{agentId\}\}/g, this.id);
     const yuanType = this._config?.agent?.yuan || "openZetcX";
+    const yuanKeys = yuanTemplateCandidates(yuanType);
     const isZh = String(this._config.locale || "").startsWith("zh");
     const langDir = isZh ? "" : "en/";
     const raw = readFile(path.join(this.agentDir, "public-ishiki.md"))
-      || readFile(path.join(this.productDir, "public-ishiki-templates", `${langDir}${yuanType}.md`))
-      || readFile(path.join(this.productDir, "public-ishiki-templates", `${yuanType}.md`))
+      || yuanKeys.map((key) => readFile(path.join(this.productDir, "public-ishiki-templates", `${langDir}${key}.md`))).find(Boolean)
+      || yuanKeys.map((key) => readFile(path.join(this.productDir, "public-ishiki-templates", `${key}.md`))).find(Boolean)
       || "";
     return fill(raw);
   }
@@ -793,7 +840,7 @@ export class Agent {
    * @param {boolean} [options.forSubagent] - 为 subagent 构造的轻量 prompt：
    *   跳过记忆三段（规则 + pinned.md + memory.md）和团队 agent 名单。
    *   Subagent 是一次性隔离任务，不需要长期记忆和多 agent 协作上下文。
-   * @param {string} [options.cwdOverride] - 覆盖 prompt 中“工作空间”章节展示的 cwd。
+   * @param {string} [options.cwdOverride] - 覆盖 prompt 中“工作台”章节展示的 cwd。
    *   用于新建隔离 session 时，让 prompt 快照和实际执行目录保持一致。
    */
   buildSystemPrompt(options = {}) {
@@ -834,7 +881,7 @@ export class Agent {
     // cache 命中率（KV cache / Anthropic prompt cache 都按严格前缀匹配）。
     // 顺序：平台 → 环境 → 行为指南（任务/经验/工具/安全/网页/设置/技能/团队）
     //      ── cache 分界线 ──
-    //      用户档案 → ishiki（依赖 userName）→ 工作空间 → 记忆规则/置顶/记忆 → 当前时间
+    //      用户档案 → ishiki（依赖 userName）→ 工作台 → 记忆规则/置顶/记忆 → 当前时间
     //
     // ishiki 放在用户档案之后：模板里有「你和{userName}是认识很久的人」这类引用，
     // 叙事顺序上先告诉模型"用户是谁"，再告诉它"你是谁、你和用户什么关系"。
@@ -1130,11 +1177,11 @@ export class Agent {
     // 放在用户档案之后：先建立"用户是谁"的语境，再讲"你是谁、你和用户什么关系"。
     parts.push(ishiki);
 
-    // 工作空间 = 当前工作目录（注入实际路径）
+    // 工作台 = 当前工作目录（注入实际路径）
     const cwdPath = cwdOverride !== null ? cwdOverride : (this._cb?.getCwd?.() || "");
     parts.push(isZh
-      ? `\n## 工作空间\n\n` +
-        `用户所说的「工作空间」指的是当前工作目录（cwd）。` +
+      ? `\n## 工作台\n\n` +
+        `用户所说的「工作台」指的是当前工作目录（cwd）。` +
         (cwdPath ? `\n当前工作目录：${cwdPath}` : "") +
         `\n用户提到的文件、目录默认在当前工作目录下查找。`
       : `\n## Workspace\n\n` +
@@ -1145,7 +1192,7 @@ export class Agent {
 
     parts.push(isZh
       ? "\n## 技能文件身份\n\n" +
-        "技能的运行时位置可能是会话冻结的源文件指针，也可能是旧会话遗留的快照副本。指针只冻结本次会话可见的技能身份；如果源文件已不存在，该技能视为不可用。`sessions/.skill-snapshots` 与 `session-files` 下的技能副本不是源文件，不能编辑。用户要求修改技能时，先定位真实源文件：工作区技能通常在当前工作目录的 `.agents/skills/<name>/SKILL.md`；安装后的用户技能或自学技能以安装工具返回的 `skill_source` 为准。找不到源文件时显式说明。"
+        "技能的运行时位置可能是会话冻结的源文件指针，也可能是旧会话遗留的快照副本。指针只冻结本次会话可见的技能身份；如果源文件已不存在，该技能视为不可用。`sessions/.skill-snapshots` 与 `session-files` 下的技能副本不是源文件，不能编辑。用户要求修改技能时，先定位真实源文件：工作台技能通常在当前工作目录的 `.agents/skills/<name>/SKILL.md`；安装后的用户技能或自学技能以安装工具返回的 `skill_source` 为准。找不到源文件时显式说明。"
       : "\n## Skill File Identity\n\n" +
         "A skill's runtime location may be a per-session source pointer, or a legacy snapshot copy from older sessions. A pointer freezes only the skill identity visible to this session; if the source file no longer exists, that skill is unavailable. Skill copies under `sessions/.skill-snapshots` and `session-files` are not source files and must not be edited. When the user asks to modify a skill, locate the real source file first: workspace skills usually live at `.agents/skills/<name>/SKILL.md` under the current working directory; installed user or learned skills should use the `skill_source` returned by install tools. If the source cannot be resolved, say so explicitly."
     );

@@ -236,6 +236,72 @@ describe("agents route", () => {
     expect(engine.updateConfig).toHaveBeenCalledWith({ agent: { yuan: "ming" } }, { agentId });
   });
 
+  it("uses the dedicated kong templates instead of hanako/openZetcX persona when switching to raw openZetcX", async () => {
+    const agentId = "hana";
+    const agentDir = path.join(tempRoot, agentId);
+    const productDir = path.join(tempRoot, "product");
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.mkdirSync(path.join(productDir, "identity-templates"), { recursive: true });
+    fs.mkdirSync(path.join(productDir, "ishiki-templates"), { recursive: true });
+    fs.writeFileSync(
+      path.join(agentDir, "config.yaml"),
+      [
+        "agent:",
+        "  name: Hana",
+        "  yuan: hanako",
+        "user:",
+        "  name: Tester",
+        "locale: zh-CN",
+      ].join("\n"),
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(agentDir, "identity.md"), "hanako identity\n", "utf-8");
+    fs.writeFileSync(path.join(agentDir, "ishiki.md"), "hanako ishiki\n", "utf-8");
+    fs.writeFileSync(
+      path.join(productDir, "identity-templates", "hanako.md"),
+      "{{agentName}} / {{userName}} / hanako identity\n",
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(productDir, "ishiki-templates", "hanako.md"), "hanako ishiki template\n", "utf-8");
+    fs.writeFileSync(
+      path.join(productDir, "identity-templates", "kong.md"),
+      "{{agentName}} / {{userName}} / kong identity\n",
+      "utf-8",
+    );
+    fs.writeFileSync(path.join(productDir, "ishiki-templates", "kong.md"), "kong ishiki\n", "utf-8");
+
+    const { createAgentsRoute } = await import("../server/routes/agents.js");
+    const app = new Hono();
+    const engine = {
+      agentsDir: tempRoot,
+      productDir,
+      providerRegistry: {
+        saveProvider: vi.fn(),
+        removeProvider: vi.fn(),
+        getAllProvidersRaw: vi.fn(() => ({})),
+        get: vi.fn(() => null),
+      },
+      onProviderChanged: vi.fn().mockResolvedValue(undefined),
+      updateConfig: vi.fn().mockResolvedValue(undefined),
+      invalidateAgentListCache: vi.fn(),
+      listAgents: vi.fn(() => []),
+      emitEvent: vi.fn(),
+    };
+
+    app.route("/api", createAgentsRoute(engine));
+
+    const res = await app.request(`/api/agents/${agentId}/config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agent: { yuan: "kong" } }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(fs.readFileSync(path.join(agentDir, "identity.md"), "utf-8")).toBe("Hana / Tester / kong identity\n");
+    expect(fs.readFileSync(path.join(agentDir, "ishiki.md"), "utf-8")).toBe("kong ishiki\n");
+    expect(engine.updateConfig).toHaveBeenCalledWith({ agent: { yuan: "kong" } }, { agentId });
+  });
+
   it("emits scoped config events after saving changed config blocks", async () => {
     const agentId = "hana";
     const agentDir = path.join(tempRoot, agentId);
@@ -343,6 +409,36 @@ describe("agents route", () => {
     expect(res.status).toBe(200);
     expect(saveProvider).toHaveBeenCalledWith("openai", { api_key: "" });
     expect(engine.onProviderChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it("refreshes generated description after identity changes", async () => {
+    const agentId = "hana";
+    const agentDir = path.join(tempRoot, agentId);
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, "config.yaml"), "agent:\n  name: Hana\n", "utf-8");
+
+    const { createAgentsRoute } = await import("../server/routes/agents.js");
+    const app = new Hono();
+    const engine = {
+      agentsDir: tempRoot,
+      updateConfig: vi.fn().mockResolvedValue(undefined),
+      invalidateAgentListCache: vi.fn(),
+      emitEvent: vi.fn(),
+    };
+
+    app.route("/api", createAgentsRoute(engine));
+
+    const res = await app.request(`/api/agents/${agentId}/identity`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "新的公开身份材料" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(fs.readFileSync(path.join(agentDir, "identity.md"), "utf-8")).toBe("新的公开身份材料");
+    expect(engine.updateConfig).toHaveBeenCalledWith({}, { agentId, refreshDescription: true });
+    expect(engine.invalidateAgentListCache).toHaveBeenCalledTimes(1);
+    expectAppEvent(engine.emitEvent, "agent-updated", { agentId });
   });
 
   it("rejects dangerous experience headings without overwriting agent files", async () => {

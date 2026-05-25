@@ -59,6 +59,12 @@ function isOfficialDeepSeekEndpoint(model, context = {}) {
     || getBaseUrl(model, context).includes("api.deepseek.com");
 }
 
+function isOpenRouterEndpoint(model, context = {}) {
+  if (getProvider(model, context) === "openrouter") return true;
+  const host = getBaseHost(model, context);
+  return host === "openrouter.ai" || host.endsWith(".openrouter.ai");
+}
+
 const OFFICIAL_MIMO_PROVIDERS = new Set([
   "mimo",
   "xiaomi",
@@ -142,6 +148,14 @@ export function getThinkingFormat(model, context = {}) {
   }
 
   if (
+    isOpenRouterEndpoint(model, context)
+    && model.reasoning === true
+    && (api === "openai-completions" || api === "")
+  ) {
+    return "openrouter";
+  }
+
+  if (
     isOfficialDeepSeekEndpoint(model, context)
     && (model.reasoning === true || isDeepSeekThinkingModelId(modelId))
   ) {
@@ -212,6 +226,47 @@ export function withThinkingFormatCompat(model, context = {}) {
       ...(profile ? { reasoningProfile: profile } : {}),
     },
   };
+}
+
+export const MODEL_IMAGE_TRANSPORTS = Object.freeze({
+  NONE: "none",
+  OPENAI_IMAGE_URL: "openai-image-url",
+  OPENAI_INPUT_IMAGE: "openai-input-image",
+  ANTHROPIC_IMAGE: "anthropic-image",
+  UNSUPPORTED: "unsupported",
+});
+
+export function modelSupportsImageInput(model) {
+  if (!isPlainObject(model)) return false;
+  return Array.isArray(model.input) && model.input.includes("image");
+}
+
+function isOfficialDeepSeekImageEndpoint(model, context = {}) {
+  const host = getBaseHost(model, context);
+  if (host) return host === "api.deepseek.com";
+  return getProvider(model, context) === "deepseek";
+}
+
+export function resolveModelImageInputTransport(model, context = {}) {
+  if (!modelSupportsImageInput(model)) return MODEL_IMAGE_TRANSPORTS.NONE;
+
+  if (isOfficialDeepSeekImageEndpoint(model, context)) {
+    return MODEL_IMAGE_TRANSPORTS.UNSUPPORTED;
+  }
+
+  const api = getApi(model, context);
+  if (api === "anthropic-messages") return MODEL_IMAGE_TRANSPORTS.ANTHROPIC_IMAGE;
+  if (api === "openai-responses" || api === "openai-codex-responses") {
+    return MODEL_IMAGE_TRANSPORTS.OPENAI_INPUT_IMAGE;
+  }
+
+  return MODEL_IMAGE_TRANSPORTS.OPENAI_IMAGE_URL;
+}
+
+export function modelSupportsDirectImageInput(model, context = {}) {
+  const transport = resolveModelImageInputTransport(model, context);
+  return transport !== MODEL_IMAGE_TRANSPORTS.NONE
+    && transport !== MODEL_IMAGE_TRANSPORTS.UNSUPPORTED;
 }
 
 export function modelSupportsVideoInput(model) {

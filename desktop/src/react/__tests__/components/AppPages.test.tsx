@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import '@testing-library/jest-dom/vitest';
-import React, { createRef } from 'react';
+import React from 'react';
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { useStore } from '../../stores';
@@ -11,10 +11,6 @@ vi.mock('../../MainContent', () => ({
   MainContent: ({ children }: { children: React.ReactNode }) => (
     <main data-testid="main-content">{children}</main>
   ),
-}));
-
-vi.mock('../../components/PreviewPanel', () => ({
-  PreviewPanel: () => <aside data-testid="preview-panel" />,
 }));
 
 vi.mock('../../components/right-workspace/RightWorkspacePanel', () => ({
@@ -85,22 +81,20 @@ describe('AppPages page ownership', () => {
   });
 
   it('renders the file preview only on the chat page', () => {
-    const ref = createRef<HTMLDivElement>();
-    render(<AppPages inputCardRef={ref} />);
+    render(<AppPages />);
 
     expect(screen.getByTestId('chat-area')).toBeInTheDocument();
-    expect(screen.getByTestId('preview-panel')).toBeInTheDocument();
+    expect(document.querySelector('#previewPanel')).toBeInTheDocument();
     expect(screen.getByTestId('right-workspace-panel')).toBeInTheDocument();
   });
 
   it('keeps the workspace companion on plugin pages without carrying the file preview', () => {
     useStore.setState({ currentTab: 'plugin:hanako-hyperframes' } as never);
-    const ref = createRef<HTMLDivElement>();
 
-    render(<AppPages inputCardRef={ref} />);
+    render(<AppPages />);
 
     expect(screen.getByTestId('plugin-page')).toHaveTextContent('hanako-hyperframes');
-    expect(screen.queryByTestId('preview-panel')).not.toBeInTheDocument();
+    expect(document.querySelector('#previewPanel')).not.toBeInTheDocument();
     expect(screen.getByTestId('right-workspace-panel')).toBeInTheDocument();
   });
 
@@ -111,9 +105,8 @@ describe('AppPages page ownership', () => {
       channelMembers: ['hanako', 'butter'],
       channelInfoName: 'Crew',
     } as never);
-    const ref = createRef<HTMLDivElement>();
 
-    render(<AppPages inputCardRef={ref} />);
+    render(<AppPages />);
 
     expect(screen.getByTestId('channel-messages')).toBeInTheDocument();
     expect(screen.getByTestId('channel-members')).toBeInTheDocument();

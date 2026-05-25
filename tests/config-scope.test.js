@@ -17,19 +17,21 @@ import { migrateConfigScope } from "../shared/migrate-config-scope.js";
 // ---------------------------------------------------------------------------
 
 describe("splitByScope", () => {
-  it("extracts top-level global fields (locale, sandbox, sandbox_network) while keeping agent fields (models)", () => {
-    const partial = { locale: "zh-CN", sandbox: false, sandbox_network: true, models: ["gpt-4"] };
+  it("extracts top-level global fields while keeping agent fields (models)", () => {
+    const partial = { locale: "zh-CN", sandbox: false, sandbox_network: true, hardware_acceleration: false, models: ["gpt-4"] };
     const { global: g, agent } = splitByScope(partial);
 
     expect(g).toEqual(expect.arrayContaining([
       expect.objectContaining({ key: "locale", value: "zh-CN" }),
       expect.objectContaining({ key: "sandbox", value: false }),
       expect.objectContaining({ key: "sandbox_network", value: true }),
+      expect.objectContaining({ key: "hardware_acceleration", value: false }),
     ]));
     expect(agent.models).toEqual(["gpt-4"]);
     expect(agent.locale).toBeUndefined();
     expect(agent.sandbox).toBeUndefined();
     expect(agent.sandbox_network).toBeUndefined();
+    expect(agent.hardware_acceleration).toBeUndefined();
   });
 
   it("extracts nested global fields (capabilities.learn_skills) while keeping sibling nested fields", () => {
@@ -119,6 +121,20 @@ describe("splitByScope", () => {
     expect(Object.keys(agent)).toHaveLength(0);
   });
 
+  it("extracts network_proxy as a top-level global field", () => {
+    const partial = {
+      network_proxy: { mode: "manual", httpProxy: "http://127.0.0.1:7890" },
+      models: { chat: { id: "gpt-4.1", provider: "openai" } },
+    };
+    const { global: g, agent } = splitByScope(partial);
+
+    expect(g).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "network_proxy", value: partial.network_proxy }),
+    ]));
+    expect(agent.network_proxy).toBeUndefined();
+    expect(agent.models).toEqual(partial.models);
+  });
+
   it("handles empty partial", () => {
     const { global: g, agent } = splitByScope({});
 
@@ -148,12 +164,14 @@ describe("injectGlobalFields", () => {
       getTimezone: () => "Asia/Tokyo",
       getSandbox: () => false,
       getSandboxNetwork: () => true,
+      getHardwareAcceleration: () => false,
       getUpdateChannel: () => "beta",
       getThinkingLevel: () => "high",
       getLearnSkills: () => true,
       getHeartbeatMaster: () => true,
       getBridgeReadOnly: () => true,
       getBridgeReceiptEnabled: () => false,
+      getNetworkProxy: () => ({ mode: "direct" }),
     };
     const config = {};
     injectGlobalFields(config, engine);
@@ -162,12 +180,14 @@ describe("injectGlobalFields", () => {
     expect(config.timezone).toBe("Asia/Tokyo");
     expect(config.sandbox).toBe(false);
     expect(config.sandbox_network).toBe(true);
+    expect(config.hardware_acceleration).toBe(false);
     expect(config.update_channel).toBe("beta");
     expect(config.thinking_level).toBe("high");
     expect(config.capabilities?.learn_skills).toBe(true);
     expect(config.desk?.heartbeat_master).toBe(true);
     expect(config.bridge?.readOnly).toBe(true);
     expect(config.bridge?.receiptEnabled).toBe(false);
+    expect(config.network_proxy).toEqual({ mode: "direct" });
   });
 
   it("skips getters that don't exist on engine (doesn't throw)", () => {

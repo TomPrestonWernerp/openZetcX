@@ -12,6 +12,12 @@
     --space-lg: 1.5rem;
     --space-xl: 2.5rem;
 
+    /* 对话列宽 */
+    --chat-column-width: 45rem;
+    --chat-input-column-extra: 1.25rem;
+    --chat-input-column-width: calc(var(--chat-column-width) + var(--chat-input-column-extra));
+    --welcome-chat-input-column-width: 40rem;
+
     /* 圆角 */
     --radius-sm: 6px;
     --radius-md: 10px;
@@ -20,6 +26,8 @@
     /* 主题可覆盖的抽象 token（默认值和现有视觉一致；主题 CSS 可 override） */
     --radius-input: 4px;        /* input / select widget / textarea / ghost button / media dropdown */
     --radius-card: 10px;        /* SettingsSection body / skill-list-item 首尾 / tool-caps 首尾 */
+    --radius-chat-card: 4px; /* in-message chat cards */
+    --radius-chat-card-inner: max(2px, calc(var(--radius-chat-card) - 2px));
     --border-width: 1px;        /* 表单控件 / section body 边框粗细 */
     --link: var(--accent, #537D96);
     --link-hover: var(--accent-hover, var(--link));
@@ -462,7 +470,7 @@ html[data-platform="linux"] .tb-toggle-right {
     text-align: center;
 }
 
-/* 笺 mini 编辑器 */
+/* 便签 mini 编辑器 */
 .float-card-jian {
     border-top: 1px solid var(--overlay-light);
     margin-top: 2px;
@@ -877,6 +885,21 @@ html[data-platform="linux"] .tb-toggle-right {
     opacity: 0.35;
     cursor: not-allowed;
     pointer-events: none;
+}
+
+/* loading：异步数据未到位的中性态。滑块居中，背景脉冲，覆盖 disabled 的低 opacity */
+.hana-toggle.loading {
+    opacity: 0.55;
+    animation: hana-toggle-loading-pulse 1.2s ease-in-out infinite;
+}
+
+.hana-toggle.loading::after {
+    transform: translateX(8px);
+}
+
+@keyframes hana-toggle-loading-pulse {
+    0%, 100% { opacity: 0.55; }
+    50% { opacity: 0.35; }
 }
 
 .hana-toggle-label {
@@ -1873,6 +1896,7 @@ html[data-platform="linux"] .tb-toggle-right {
 
 .sv-body {
     flex: 1;
+    min-height: 0;
     display: flex;
     overflow: hidden;
 }
@@ -1880,6 +1904,7 @@ html[data-platform="linux"] .tb-toggle-right {
 .sv-sidebar {
     width: 200px;
     min-width: 160px;
+    min-height: 0;
     border-right: 1px solid var(--border);
     overflow-y: auto;
     padding: 8px 0;
@@ -1924,6 +1949,8 @@ html[data-platform="linux"] .tb-toggle-right {
 
 .sv-content {
     flex: 1;
+    min-width: 0;
+    min-height: 0;
     overflow-y: auto;
     padding: 24px 32px;
 }
@@ -2077,7 +2104,7 @@ html[data-platform="linux"] .tb-toggle-right {
 }
 
 .input-area > * {
-    max-width: 646px;
+    max-width: var(--chat-input-column-width);
     margin-left: auto;
     margin-right: auto;
     pointer-events: auto;
@@ -2097,6 +2124,10 @@ html[data-platform="linux"] .tb-toggle-right {
     flex: 0 0 auto;
 }
 
+.main-content.welcome-mode .input-area > * {
+    max-width: var(--welcome-chat-input-column-width);
+}
+
 /* 覆盖 Welcome.module.css 的 min-height: 60vh，让内容自然紧凑 */
 .main-content.welcome-mode .chat-area > #welcome > * {
     min-height: 0;
@@ -2110,7 +2141,7 @@ html[data-platform="linux"] .tb-toggle-right {
 /* (输入区子组件样式已迁移到 InputArea.module.css) */
 
 /* ═══════════════════════════════════════
-   笺（jian）右侧 sidebar
+   便签（jian）右侧 sidebar
    ═══════════════════════════════════════ */
 
 /* 右侧 sidebar — 镜像左侧 sidebar 的 flex 布局 */
@@ -2269,7 +2300,7 @@ body.resizing .channel-inspector-rail {
     background: var(--border);
 }
 
-/* ── 笺区：固定高度 200px ── */
+/* ── 便签区：固定高度 200px ── */
 .jian-content-section {
     align-self: stretch;
     height: 200px;
@@ -2383,7 +2414,7 @@ body.resizing .channel-inspector-rail {
     background: var(--overlay-light);
 }
 
-/* (笺编辑器样式已迁移至 Desk.module.css) */
+/* (便签编辑器样式已迁移至 Desk.module.css) */
 
 /* Toast 通知 */
 .hana-toast {
@@ -2394,10 +2425,10 @@ body.resizing .channel-inspector-rail {
     display: flex;
     align-items: center;
     gap: 10px;
-    background: var(--bg-card, var(--bg));
+    background: var(--bg-card, #fff);
     color: var(--text, var(--text-primary, #3f3a34));
     padding: 8px 12px 8px 20px;
-    border: 1px solid rgba(var(--accent-rgb), 0.12);
+    border: 1px solid var(--overlay-light, rgba(0, 0, 0, 0.08));
     border-radius: 8px;
     font-size: 13px;
     opacity: 0;
@@ -2412,7 +2443,7 @@ body.resizing .channel-inspector-rail {
     pointer-events: auto;
 }
 .hana-toast.error {
-    background: var(--bg-card, var(--bg));
+    background: var(--bg-card, #fff);
     color: var(--text-muted);
 }
 .hana-toast-close {
@@ -2429,9 +2460,6 @@ body.resizing .channel-inspector-rail {
 }
 .hana-toast-close:hover {
     opacity: 1;
-}
-.hana-toast.warning {
-    border-left-color: var(--danger, #b56b66);
 }
 .hana-toast-actions {
     display: flex;
@@ -2532,7 +2560,7 @@ body.resizing .channel-inspector-rail {
 
 /* (文件标签样式已迁移到 InputArea.module.css) */
 
-/* 工作空间上下文气泡（从按钮 callout 出来） */
+/* 工作台上下文气泡（从按钮 callout 出来） */
 
 
 /* 隐藏工具类 */
@@ -3009,6 +3037,42 @@ html[data-platform="linux"] .onboarding {
     margin-top: auto;
     padding-top: 16px;
 }
+
+.ob-remote-connect {
+    width: 100%;
+    margin-top: 12px;
+    text-align: center;
+}
+
+.ob-remote-connect-link {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-family: inherit;
+    font-size: 0.76rem;
+    cursor: pointer;
+    padding: 4px 8px;
+}
+
+.ob-remote-connect-link:hover {
+    color: var(--accent);
+}
+
+.ob-remote-connect-panel {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    width: min(100%, 360px);
+    margin: 0 auto;
+    padding-top: 2px;
+}
+
+.ob-remote-connect-actions {
+    display: flex;
+    justify-content: center;
+    gap: 10px;
+}
+
 .ob-btn {
     font-family: inherit;
     font-size: 0.85rem;

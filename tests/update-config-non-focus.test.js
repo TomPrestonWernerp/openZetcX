@@ -83,6 +83,16 @@ describe("updateConfig with agentId", () => {
     expect(focusAgent.updateConfig).not.toHaveBeenCalled();
   });
 
+  it("显式刷新 description 时只把刷新意图传给目标 agent", async () => {
+    const { focusAgent, targetAgent, deps } = makeDeps();
+    const coord = new ConfigCoordinator(deps);
+
+    await coord.updateConfig({}, { agentId: "target", refreshDescription: true });
+
+    expect(targetAgent.updateConfig).toHaveBeenCalledWith({}, { refreshDescription: true });
+    expect(focusAgent.updateConfig).not.toHaveBeenCalled();
+  });
+
   it("不传 agentId 时刷新焦点 agent", async () => {
     const { focusAgent, targetAgent, deps } = makeDeps();
     const coord = new ConfigCoordinator(deps);
@@ -207,6 +217,31 @@ describe("updateConfig with agentId", () => {
     expect(coord.getSharedModels()).toEqual(expect.objectContaining({
       vision_enabled: false,
     }));
+  });
+
+  it("setHeartbeatMaster only restarts agents that explicitly opted in", () => {
+    let prefs = {};
+    const focusHb = { start: vi.fn(), stop: vi.fn() };
+    const targetHb = { start: vi.fn(), stop: vi.fn() };
+    const { focusAgent, targetAgent, deps } = makeDeps({
+      getPrefs: () => ({
+        getPreferences: () => prefs,
+        savePreferences: (next) => { prefs = { ...next }; },
+      }),
+      getHub: () => ({
+        scheduler: {
+          getHeartbeat: (agentId) => (agentId === "focus" ? focusHb : targetHb),
+        },
+      }),
+    });
+    focusAgent.config.desk = {};
+    targetAgent.config.desk = { heartbeat_enabled: true };
+    const coord = new ConfigCoordinator(deps);
+
+    coord.setHeartbeatMaster(true);
+
+    expect(focusHb.start).not.toHaveBeenCalled();
+    expect(targetHb.start).toHaveBeenCalledOnce();
   });
 
   it("setSharedModels stores and clears auxiliary vision without mutating utility or memory runtime state", () => {

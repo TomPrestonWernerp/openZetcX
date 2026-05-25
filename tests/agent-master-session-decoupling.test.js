@@ -15,11 +15,16 @@ import os from "os";
 import path from "path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { memoryTickerTickMock, memoryTickerStartMock } = vi.hoisted(() => ({
+  memoryTickerTickMock: vi.fn().mockResolvedValue(undefined),
+  memoryTickerStartMock: vi.fn(),
+}));
+
 vi.mock("../lib/memory/memory-ticker.js", () => ({
   createMemoryTicker: () => ({
-    start: vi.fn(),
+    start: memoryTickerStartMock,
     stop: vi.fn().mockResolvedValue(undefined),
-    tick: vi.fn().mockResolvedValue(undefined),
+    tick: memoryTickerTickMock,
     triggerNow: vi.fn(),
     notifyTurn: vi.fn(),
     notifySessionEnd: vi.fn().mockResolvedValue(undefined),
@@ -79,6 +84,7 @@ describe("agent.systemPrompt: master / per-session 解耦", () => {
   let agentsDir;
 
   beforeEach(() => {
+    vi.clearAllMocks();
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-master-decouple-"));
     ({ agentsDir } = bootstrapAgentDir(tmpDir));
   });
@@ -147,7 +153,7 @@ describe("agent.systemPrompt: master / per-session 解耦", () => {
     await agent.dispose();
   });
 
-  it("系统 prompt 用一句话把工作空间定义为 cwd", async () => {
+  it("系统 prompt 用一句话把工作台定义为 cwd", async () => {
     const agent = makeAgent(agentsDir, tmpDir);
     await agent.init(() => {});
     agent._config.locale = "zh-CN";
@@ -157,8 +163,8 @@ describe("agent.systemPrompt: master / per-session 解耦", () => {
       cwdOverride: "/workspace/Desktop/project-hana",
     });
 
-    expect(prompt).toContain("## 工作空间");
-    expect(prompt).toContain("用户所说的「工作空间」指的是当前工作目录（cwd）。");
+    expect(prompt).toContain("## 工作台");
+    expect(prompt).toContain("用户所说的「工作台」指的是当前工作目录（cwd）。");
     expect(prompt).toContain("当前工作目录：/workspace/Desktop/project-hana");
     expect(prompt).not.toContain("## 书桌");
     expect(prompt).not.toContain("系统桌面");
@@ -206,6 +212,24 @@ describe("agent.systemPrompt: master / per-session 解耦", () => {
 
     expect(toolNames).not.toContain("computer");
     expect(prompt).not.toContain("Desktop App Control");
+
+    await agent.dispose();
+  });
+
+  it("init 把首次记忆维护交给 manager 调度，不在启动路径直接 tick", async () => {
+    const agent = makeAgent(agentsDir, tmpDir);
+    const scheduleMemoryMaintenance = vi.fn();
+    agent.setCallbacks({
+      scheduleMemoryMaintenance,
+      getLearnSkills: () => ({}),
+      isChannelsEnabled: () => false,
+    });
+
+    await agent.init(() => {}, {}, () => ({ id: "gpt-4", provider: "openai" }));
+
+    expect(memoryTickerTickMock).not.toHaveBeenCalled();
+    expect(scheduleMemoryMaintenance).toHaveBeenCalledWith("test-agent", "runtime-init");
+    expect(memoryTickerStartMock).toHaveBeenCalledOnce();
 
     await agent.dispose();
   });

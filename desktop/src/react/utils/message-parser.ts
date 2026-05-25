@@ -6,14 +6,14 @@
  */
 
 import { QUOTE_ORIGINAL_END, QUOTE_ORIGINAL_START } from './quoted-selection';
+import { moodLabelForYuan } from '../../../../shared/yuan-visuals.js';
 
 // ── Mood 解析 ──
 
-const TAG_TO_YUAN: Record<string, string> = { mood: 'openZetcX', pulse: 'butter', reflect: 'ming' };
-const YUAN_LABELS: Record<string, string> = { openZetcX: '✿ MOOD', butter: '❊ PULSE', ming: '◈ REFLECT' };
+const TAG_TO_YUAN: Record<string, string> = { mood: 'hanako', pulse: 'butter', reflect: 'ming' };
 
 export function moodLabel(yuan: string): string {
-  return YUAN_LABELS[yuan] || YUAN_LABELS.openZetcX;
+  return moodLabelForYuan(yuan);
 }
 
 export function cleanMoodText(raw: string): string {
@@ -29,7 +29,7 @@ export function parseMoodFromContent(content: string): { mood: string | null; yu
   const moodRe = /<(mood|pulse|reflect)>([\s\S]*?)<\/(?:mood|pulse|reflect)>/;
   const match = content.match(moodRe);
   if (!match) return { mood: null, yuan: null, text: content };
-  const yuan = TAG_TO_YUAN[match[1]] || 'openZetcX';
+  const yuan = TAG_TO_YUAN[match[1]] || 'hanako';
   const mood = cleanMoodText(match[2].trim());
   const text = content.replace(moodRe, '').replace(/^\n+/, '').trim();
   return { mood, yuan, text };

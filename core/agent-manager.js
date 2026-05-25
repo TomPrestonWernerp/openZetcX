@@ -12,6 +12,7 @@ import { Agent } from "./agent.js";
 import { safeReadYAMLSync } from "../shared/safe-fs.js";
 import { createModuleLogger } from "../lib/debug-log.js";
 import { clearConfigCache } from "../lib/memory/config-loader.js";
+import { hasCompiledMemory, writeCompiledMemorySnapshot } from "../lib/memory/compiled-memory-snapshot.js";
 import { t } from "../server/i18n.js";
 import { ActivityStore } from "../lib/desk/activity-store.js";
 import { createHash } from "crypto";
@@ -22,6 +23,7 @@ import {
 import { findModel, parseModelRef } from "../shared/model-ref.js";
 import { DEFAULT_HEARTBEAT_INTERVAL_MINUTES } from "../shared/default-workspace.js";
 import { relativePathInsideBase } from "./message-utils.js";
+import { detachAgentFromBundles } from "../lib/skill-bundles/store.js";
 
 const log = createModuleLogger("agent-mgr");
 
@@ -50,6 +52,14 @@ export class AgentManager {
     this._activityStores = new Map();
     this._agentListCache = null;       // { raw: [{id,name,yuan,identity}], ts: number }
     this._descRefreshPending = false;
+    this._runtimeInitPromises = new Map();
+    this._runtimeInitQueue = [];
+    this._runtimeInitRunning = 0;
+    this._runtimeInitConcurrency = 2;
+    this._memoryMaintenanceQueue = [];
+    this._memoryMaintenanceQueued = new Set();
+    this._memoryMaintenanceRunning = 0;
+    this._memoryMaintenanceConcurrency = 1;
   }
 
   /** 清除 listAgents 缓存（agent 增删改时调用） */
@@ -88,25 +98,21 @@ export class AgentManager {
   async initAllAgents(log, startId) {
     this._activeAgentId = startId;
 
-    const sharedModels = this._d.getSharedModels();
-    const resolveModel = (bareId) =>
-      this._d.getModels().resolveModelWithCredentials(bareId);
-
     const entries = this._scanAgentDirs();
-    const initOne = async (agentId) => {
-      const ag = this._createAgentInstance(agentId, () => ({}));
-      ag.setGetOwnerIds(this._makeOwnerIdsFn(ag));
-      await ag.init(
-        agentId === this._activeAgentId ? log : () => {},
-        sharedModels,
-        resolveModel,
-      );
-      this._registerAgent(agentId, ag);
-    };
+    const ids = new Set([this._activeAgentId, ...entries.map(e => e.name)].filter(Boolean));
+    for (const agentId of ids) {
+      await this._loadAgentConfigOnly(agentId, { required: agentId === this._activeAgentId });
+    }
 
+    let activeRuntimeReady = false;
     // 焦点 agent 先初始化 — 失败不阻塞启动，让用户能进应用修配置
     try {
-      await initOne(this._activeAgentId);
+      await this.ensureAgentRuntime(this._activeAgentId, {
+        log,
+        priority: "foreground",
+        reason: "startup",
+      });
+      activeRuntimeReady = true;
     } catch (err) {
       console.error(`[agent-manager] 焦点 agent "${this._activeAgentId}" init 失败: ${err.message}`);
       if (err.stack) console.error(err.stack);
@@ -114,29 +120,111 @@ export class AgentManager {
       // 关键：必须至少把 config 加载进来，否则 agent.config.models.chat 读不到，
       // 下游会误判为"没配模型"，触发 session 创建跳过 / 记忆系统未启动等连锁崩溃（#414）。
       if (!this._agents.has(this._activeAgentId)) {
-        const ag = this._createAgentInstance(this._activeAgentId, () => ({}));
-        ag.setGetOwnerIds(this._makeOwnerIdsFn(ag));
-        try {
-          ag.loadConfigOnly();
-        } catch (cfgErr) {
-          console.error(`[agent-manager] fallback loadConfigOnly 也失败: ${cfgErr.message}`);
-          if (cfgErr.stack) console.error(cfgErr.stack);
-        }
-        this._registerAgent(this._activeAgentId, ag);
+        await this._loadAgentConfigOnly(this._activeAgentId, { required: true });
       }
     }
 
-    // 其余并行
-    const others = entries.map(e => e.name).filter(id => id !== this._activeAgentId);
-    if (others.length) {
-      const results = await Promise.allSettled(others.map(id => initOne(id)));
-      for (let i = 0; i < results.length; i++) {
-        if (results[i].status === "rejected") {
-          console.error(`[agent-manager] agent "${others[i]}" init 失败: ${results[i].reason?.message}`);
-        }
-      }
+    log(`[init] ${this._agents.size} 个 agent 已加载配置，焦点 runtime ${activeRuntimeReady ? "已就绪" : "待修复"}`);
+  }
+
+  async _loadAgentConfigOnly(agentId, { required = false } = {}) {
+    if (this._agents.has(agentId)) return this._agents.get(agentId);
+
+    const ag = this._createAgentInstance(agentId, () => ({}));
+    ag.setGetOwnerIds(this._makeOwnerIdsFn(ag));
+    try {
+      ag.loadConfigOnly();
+    } catch (err) {
+      console.error(`[agent-manager] agent "${agentId}" config load 失败: ${err.message}`);
+      if (!required) return null;
     }
-    log(`[init] ${this._agents.size} 个 agent 初始化完成`);
+    this._registerAgent(agentId, ag);
+    return ag;
+  }
+
+  async ensureAgentRuntime(agentId, options = {}) {
+    if (!agentId) throw new Error("ensureAgentRuntime: agentId is required");
+    let ag = this._agents.get(agentId);
+    if (!ag) {
+      ag = await this._loadAgentConfigOnly(agentId, { required: true });
+    }
+    if (!ag) throw new Error(t("error.agentNotFound", { id: agentId }));
+    if (ag.runtimeInitialized === true) return ag;
+
+    const existing = this._runtimeInitPromises.get(agentId);
+    if (existing) return existing;
+
+    const promise = new Promise((resolve, reject) => {
+      this._runtimeInitQueue.push({
+        agentId,
+        priority: options.priority === "foreground" ? 0 : 1,
+        log: options.log || (() => {}),
+        resolve,
+        reject,
+      });
+      this._pumpRuntimeInitQueue();
+    });
+    this._runtimeInitPromises.set(agentId, promise);
+    return promise;
+  }
+
+  _pumpRuntimeInitQueue() {
+    while (this._runtimeInitRunning < this._runtimeInitConcurrency && this._runtimeInitQueue.length) {
+      this._runtimeInitQueue.sort((a, b) => a.priority - b.priority);
+      const task = this._runtimeInitQueue.shift();
+      this._runtimeInitRunning++;
+      this._runRuntimeInitTask(task)
+        .then(task.resolve, task.reject)
+        .finally(() => {
+          this._runtimeInitRunning--;
+          this._runtimeInitPromises.delete(task.agentId);
+          this._pumpRuntimeInitQueue();
+        });
+    }
+  }
+
+  async _runRuntimeInitTask(task) {
+    const ag = this._agents.get(task.agentId);
+    if (!ag) throw new Error(t("error.agentNotFound", { id: task.agentId }));
+    if (ag.runtimeInitialized === true) return ag;
+    if (typeof ag.init !== "function") return ag;
+
+    const sharedModels = this._d.getSharedModels?.() || {};
+    const resolveModel = (bareId) =>
+      this._d.getModels().resolveModelWithCredentials(bareId);
+    await ag.init(task.log, sharedModels, resolveModel);
+    this._d.getSkills()?.syncAgentSkills?.(ag);
+    this._d.getHub()?.scheduler?.startAgentHeartbeat?.(task.agentId, ag);
+    return ag;
+  }
+
+  scheduleAgentMemoryMaintenance(agentId, reason = "manual", agentRef = null) {
+    if (!agentId || this._memoryMaintenanceQueued.has(agentId)) return;
+    this._memoryMaintenanceQueued.add(agentId);
+    this._memoryMaintenanceQueue.push({ agentId, reason, agentRef });
+    this._pumpMemoryMaintenanceQueue();
+  }
+
+  _pumpMemoryMaintenanceQueue() {
+    while (this._memoryMaintenanceRunning < this._memoryMaintenanceConcurrency && this._memoryMaintenanceQueue.length) {
+      const task = this._memoryMaintenanceQueue.shift();
+      this._memoryMaintenanceRunning++;
+      this._runMemoryMaintenanceTask(task)
+        .catch((err) => {
+          console.error(`[记忆] 后台维护出错 (${task.agentId}, ${task.reason}): ${err.message}`);
+        })
+        .finally(() => {
+          this._memoryMaintenanceQueued.delete(task.agentId);
+          this._memoryMaintenanceRunning--;
+          this._pumpMemoryMaintenanceQueue();
+        });
+    }
+  }
+
+  async _runMemoryMaintenanceTask({ agentId, agentRef }) {
+    const ag = agentRef || this._agents.get(agentId);
+    if (ag?.runtimeInitialized !== true || !ag.memoryTicker) return;
+    await ag.memoryTicker.tick();
   }
 
   // ── List ──
@@ -210,10 +298,11 @@ export class AgentManager {
         agents.push({
           id: entry.name,
           name: cfg.agent?.name || entry.name,
-          yuan: cfg.agent?.yuan || "openZetcX",
+          yuan: cfg.agent?.yuan || "hanako",
           identity,
           hasAvatar,
           chatModel,
+          homeFolder: cfg.desk?.home_folder || null,
           memoryMasterEnabled: cfg.memory?.enabled !== false,
         });
       } catch {}
@@ -231,16 +320,16 @@ export class AgentManager {
 
   /**
    * 异步刷新 agent 的 description.md
-   * 通过 hash 比对 personality + yuan 类型，变化时调用 LLM 重新生成。
+   * 通过 hash 比对 descriptionSource + yuan 类型，变化时调用 LLM 重新生成。
    */
   async _refreshDescription(agentId) {
     try {
       const ag = this._agents.get(agentId);
       if (!ag) return;
 
-      const personality = ag.personality;
-      const yuan = ag.config?.agent?.yuan || "openZetcX";
-      const hash = createHash("sha256").update(personality + "\n" + yuan).digest("hex");
+      const source = ag.descriptionSource || ag.personality;
+      const yuan = ag.config?.agent?.yuan || "hanako";
+      const hash = createHash("sha256").update(source + "\n" + yuan).digest("hex");
 
       const descPath = path.join(this._d.agentsDir, agentId, "description.md");
 
@@ -253,7 +342,7 @@ export class AgentManager {
 
       const utilConfig = this._d.resolveUtilityConfig({ agentId });
       const locale = ag.config?.locale || "zh";
-      const desc = await generateDescription(utilConfig, personality, locale);
+      const desc = await generateDescription(utilConfig, source, locale);
       if (!desc) {
         log.log(`[description] ${agentId}: 生成跳过（LLM 不可用或返回空）`);
         return;
@@ -279,7 +368,7 @@ export class AgentManager {
     try { await this._d.getChannelManager().cleanupAgentFromChannels(agentId); } catch {}
   }
 
-  async createAgent({ name, id, yuan }) {
+  async createAgent({ name, id, yuan, enabledSkills, initialFiles, avatarPath, initialMemory }) {
     if (!name?.trim()) throw new Error(t("error.agentNameEmpty"));
 
     const agentId = id?.trim() || await this._generateAgentId(name);
@@ -304,8 +393,8 @@ export class AgentManager {
     if (!configSeed || typeof configSeed !== "object" || Array.isArray(configSeed)) {
       throw new Error("Invalid config.example.yaml");
     }
-    const VALID_YUAN = ["openZetcX", "butter", "ming", "kong"];
-    const yuanType = VALID_YUAN.includes(yuan) ? yuan : "openZetcX";
+    const VALID_YUAN = ["hanako", "butter", "ming", "kong"];
+    const yuanType = VALID_YUAN.includes(yuan) ? yuan : "hanako";
     const config = configSeed;
     config.agent = { ...(config.agent || {}), name: name.trim(), yuan: yuanType };
     config.memory = {
@@ -378,9 +467,50 @@ export class AgentManager {
       fs.copyFileSync(publicIshikiSrc, path.join(agentDir, "public-ishiki.md"));
     }
 
+    if (initialFiles && typeof initialFiles === "object") {
+      const fileMap = {
+        identity: "identity.md",
+        ishiki: "ishiki.md",
+        publicIshiki: "public-ishiki.md",
+      };
+      for (const [key, fileName] of Object.entries(fileMap)) {
+        if (typeof initialFiles[key] === "string") {
+          fs.writeFileSync(path.join(agentDir, fileName), initialFiles[key], "utf-8");
+        }
+      }
+    }
+
+    if (avatarPath) {
+      const ext = path.extname(avatarPath).toLowerCase();
+      const avatarExt = ext === ".jpeg" ? ".jpg" : ext;
+      if (![".png", ".jpg", ".webp"].includes(avatarExt)) {
+        await this._rollbackAgentCreation(agentDir, agentId);
+        throw new Error("Unsupported avatar image type");
+      }
+      try {
+        fs.copyFileSync(avatarPath, path.join(agentDir, "avatars", `agent${avatarExt}`));
+      } catch (err) {
+        await this._rollbackAgentCreation(agentDir, agentId);
+        throw err;
+      }
+    }
+
     // 可选文件：确保存在（即使为空），避免运行时 ENOENT
     const touchIfMissing = (p) => { if (!fs.existsSync(p)) fs.writeFileSync(p, '', 'utf-8'); };
     touchIfMissing(path.join(agentDir, 'pinned.md'));
+
+    if (initialMemory?.compiled && hasCompiledMemory(initialMemory.compiled)) {
+      try {
+        writeCompiledMemorySnapshot(path.join(agentDir, "memory"), initialMemory.compiled, {
+          source: initialMemory.source || "character-card",
+          sourceId: initialMemory.sourceId || `agent-create-${agentId}`,
+          sourcePackage: initialMemory.sourcePackage || null,
+        });
+      } catch (err) {
+        await this._rollbackAgentCreation(agentDir, agentId);
+        throw err;
+      }
+    }
 
     // 集群系统
     try {
@@ -402,11 +532,15 @@ export class AgentManager {
       await this._rollbackAgentCreation(agentDir, agentId);
       throw err;
     }
-    // #419: 新建 agent 继承当前已装 user/SDK skill 快照;空快照时保留 template 默认
-    const defaultEnabled = this._d.getSkills().computeDefaultEnabledForNewAgent();
-    if (defaultEnabled.length > 0) {
+    // #419: 普通新建 agent 继承当前已装 user/SDK skill 快照;空快照时保留 template 默认。
+    // 角色卡导入会传入显式 enabledSkills,此时必须只启用包内技能。
+    const hasEnabledOverride = Array.isArray(enabledSkills);
+    const nextEnabled = hasEnabledOverride
+      ? enabledSkills
+      : this._d.getSkills().computeDefaultEnabledForNewAgent();
+    if (hasEnabledOverride || nextEnabled.length > 0) {
       try {
-        ag.updateConfig({ skills: { enabled: defaultEnabled } });
+        ag.updateConfig({ skills: { enabled: nextEnabled } });
         this._d.getSkills().syncAgentSkills(ag);
       } catch (err) {
         await this._rollbackAgentCreation(agentDir, agentId);
@@ -470,6 +604,10 @@ export class AgentManager {
     log.log(`switching agent to ${agentId}`);
     try {
       clearConfigCache();
+      await this.ensureAgentRuntime(agentId, {
+        priority: "foreground",
+        reason: "switch",
+      });
       this._activeAgentId = agentId;
 
       // migration #5 之后 models.chat 是 {id, provider}；
@@ -479,15 +617,7 @@ export class AgentManager {
       const ref = (typeof chatRef === "object" && chatRef?.id && chatRef?.provider) ? chatRef : null;
       const models = this._d.getModels();
       if (ref) {
-        let model = findModel(models.availableModels, ref.id, ref.provider);
-        if (!model) {
-          try {
-            await this._d.getEngine?.()?.syncModelsAndRefresh?.();
-            model = findModel(models.availableModels, ref.id, ref.provider);
-          } catch (err) {
-            log.warn(`switchAgent(${agentId}): model refresh failed: ${err.message}`);
-          }
-        }
+        const model = findModel(models.availableModels, ref.id, ref.provider);
         if (!model) {
           throw new Error(t("error.agentModelNotAvailable", { id: agentId, model: `${ref.provider}/${ref.id}` }));
         }
@@ -565,6 +695,14 @@ export class AgentManager {
     }
 
     await fsp.rm(agentDir, { recursive: true, force: true });
+
+    if (this._d.hanakoHome) {
+      try {
+        detachAgentFromBundles({ hanakoHome: this._d.hanakoHome }, agentId);
+      } catch (err) {
+        log.error(`Skill Bundle 解耦失败 (${agentId}): ${err.message}`);
+      }
+    }
 
     const prefs = this._d.getPrefs();
     const primaryId = prefs.getPrimaryAgent();
@@ -673,7 +811,9 @@ export class AgentManager {
       emitEvent:            (event, sp) => getEngine()?._emitEvent?.(event, sp),
       emitSessionEvent:     (event) => getEngine()?.emitSessionEvent?.(event),
       getDeferredResults:   () => getEngine()?.deferredResults ?? null,
+      getSubagentRunStore:  () => getEngine()?.subagentRuns ?? null,
       getTaskRegistry:      () => getEngine()?.taskRegistry ?? null,
+      getTerminalSessionManager: () => getEngine()?.terminalSessions ?? null,
       registerSessionFile:  (entry) => getEngine()?.registerSessionFile?.(entry),
       setSubagentController: (id, ctrl) => getEngine()?.setSubagentController(id, ctrl),
       removeSubagentController: (id) => getEngine()?.removeSubagentController(id),
@@ -685,6 +825,8 @@ export class AgentManager {
       resolveUtilityConfig: () => getEngine()?.resolveUtilityConfig?.({ agentId: ag.id }),
       getCwd:               () => getEngine()?.cwd ?? "",
       getTimezone:          () => getEngine()?.getTimezone?.() ?? "",
+      scheduleMemoryMaintenance: (agentId, reason) =>
+        this.scheduleAgentMemoryMaintenance(agentId, reason, ag),
       getEngine,  // update-settings-tool 仍需要完整 engine
     });
     ag.setOnInstallCallback(async (skillName) => {

@@ -16,6 +16,7 @@ import {
   isPaperTextureBlockedTheme,
   isPaperTextureEnabled,
 } from '../../../shared/appearance-preferences';
+import { persistAppearancePreferences } from '../../services/appearance-sync';
 import styles from '../Settings.module.css';
 import registry from '../../../shared/theme-registry';
 
@@ -75,6 +76,11 @@ export function InterfaceTab() {
   const refreshAppearancePrefs = useCallback(() => {
     setAppearancePrefs(readAppearancePrefs());
   }, []);
+  const syncAppearancePrefs = useCallback((patch: Record<string, unknown>) => {
+    persistAppearancePreferences(patch).catch((err) => {
+      console.warn('[settings] appearance sync failed:', err);
+    });
+  }, []);
   const {
     currentTheme,
     serifEnabled,
@@ -86,6 +92,7 @@ export function InterfaceTab() {
     () => normalizeEditorTypography(settingsConfig?.editor),
     [settingsConfig?.editor],
   );
+  const hardwareAccelerationEnabled = settingsConfig?.hardware_acceleration !== false;
 
   const saveEditorTypography = async (patch: Partial<EditorMarkdownTypography>) => {
     const previousConfig = useSettingsStore.getState().settingsConfig || {};
@@ -105,6 +112,20 @@ export function InterfaceTab() {
     useSettingsStore.setState({ settingsConfig: previousConfig });
     applyEditorTypography(restored);
     platform?.settingsChanged?.('editor-typography-changed', { editor: restored });
+  };
+
+  const saveHardwareAcceleration = async (next: boolean) => {
+    const previousConfig = useSettingsStore.getState().settingsConfig || {};
+    useSettingsStore.setState({ settingsConfig: { ...previousConfig, hardware_acceleration: next } });
+
+    const saved = await autoSaveConfig({ hardware_acceleration: next }, { silent: true });
+    if (saved) {
+      platform?.settingsChanged?.('hardware-acceleration-changed', { hardware_acceleration: next });
+      useSettingsStore.getState().showToast(t('settings.autoSaved'), 'success');
+      return;
+    }
+
+    useSettingsStore.setState({ settingsConfig: previousConfig });
   };
 
   const locale = settingsConfig?.locale || 'zh-CN';
@@ -147,6 +168,7 @@ export function InterfaceTab() {
               onClick={() => {
                 window.setTheme?.(theme);
                 platform?.settingsChanged?.('theme-changed', { theme });
+                syncAppearancePrefs({ theme });
                 refreshAppearancePrefs();
               }}
             >
@@ -167,6 +189,7 @@ export function InterfaceTab() {
               onChange={(next) => {
                 window.setSerifFont?.(next);
                 platform?.settingsChanged?.('font-changed', { serif: next });
+                syncAppearancePrefs({ serif: next });
                 refreshAppearancePrefs();
               }}
             />
@@ -184,6 +207,7 @@ export function InterfaceTab() {
               onChange={(next) => {
                 window.setPaperTexture?.(next);
                 platform?.settingsChanged?.('paper-texture-changed', { enabled: next });
+                syncAppearancePrefs({ paperTexture: next });
                 refreshAppearancePrefs();
               }}
             />
@@ -201,8 +225,22 @@ export function InterfaceTab() {
                   detail: { type: 'leaves-overlay-changed', enabled: next },
                 }));
                 platform?.settingsChanged?.('leaves-overlay-changed', { enabled: next });
+                syncAppearancePrefs({ leavesOverlay: next });
                 refreshAppearancePrefs();
               }}
+            />
+          }
+        />
+      </SettingsSection>
+
+      <SettingsSection title={t('settings.interface.system')}>
+        <SettingsRow
+          label={t('settings.interface.hardwareAcceleration')}
+          hint={t('settings.interface.hardwareAccelerationHint')}
+          control={
+            <Toggle
+              on={hardwareAccelerationEnabled}
+              onChange={saveHardwareAcceleration}
             />
           }
         />

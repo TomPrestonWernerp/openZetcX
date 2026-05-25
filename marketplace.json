@@ -1,0 +1,41 @@
+{
+  "schemaVersion": 1,
+  "plugins": [
+    {
+      "schemaVersion": 1,
+      "id": "coze-kb-search",
+      "name": "Coze KB Search",
+      "publisher": "openZetcX",
+      "version": "0.1.0",
+      "description": "环评知识库搜索插件示例，提供 coze-kb-search 技能模板，便于接入企业自己的 Coze 工作流。",
+      "repository": "https://github.com/TomPrestonWernerp/openZetcX",
+      "compatibility": {
+        "minAppVersion": "0.3.0"
+      },
+      "trust": "restricted",
+      "permissions": [],
+      "contributions": [
+        "skill"
+      ],
+      "distribution": {
+        "kind": "release",
+        "packageUrl": "https://raw.githubusercontent.com/TomPrestonWernerp/openZetcX/main/plugin-marketplace/packages/coze-kb-search-0.1.0.zip",
+        "sha256": "fe21f214e8b3e37f2b6d0f42e415ebcb92a5c3087709010cfffdc3dd7c2eab6d"
+      },
+      "readmePath": "plugin-marketplace/examples/coze-kb-search/README.md",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "compatibility": {
+            "minAppVersion": "0.3.0"
+          },
+          "distribution": {
+            "kind": "release",
+            "packageUrl": "https://raw.githubusercontent.com/TomPrestonWernerp/openZetcX/main/plugin-marketplace/packages/coze-kb-search-0.1.0.zip",
+            "sha256": "fe21f214e8b3e37f2b6d0f42e415ebcb92a5c3087709010cfffdc3dd7c2eab6d"
+          }
+        }
+      ]
+    }
+  ]
+}

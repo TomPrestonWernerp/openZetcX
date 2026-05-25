@@ -1,5 +1,6 @@
 import { memo, useLayoutEffect, useMemo, useRef } from 'react';
-import { splitGraphemes, useTypewriterText } from '../../hooks/use-typewriter-text';
+import { useTypewriterText } from '../../hooks/use-typewriter-text';
+import { splitGraphemes } from '../../utils/grapheme';
 import { renderMarkdown } from '../../utils/markdown';
 import { MarkdownContent } from './MarkdownContent';
 
@@ -18,10 +19,12 @@ const COMPLEX_MARKDOWN_PATTERNS = [
   /(^|\n)\s{4,}\S/,
   /(^|\n)\s*<[^>\n]+>/,
 ];
+const BACKTICK_SENSITIVE_MARKDOWN = /`/;
 const MAX_TAIL_FADE_COUNT = 6;
 
 export function isTypewriterEligibleMarkdownSource(source: string): boolean {
   if (!source.trim()) return false;
+  if (BACKTICK_SENSITIVE_MARKDOWN.test(source)) return false;
   return !COMPLEX_MARKDOWN_PATTERNS.some((pattern) => pattern.test(source));
 }
 
