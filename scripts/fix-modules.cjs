@@ -6,7 +6,7 @@
  * 必需的外部依赖已经落进最终资源目录。
  */
 
-const { execSync } = require("child_process");
+const { execFileSync, execSync } = require("child_process");
 const fs = require("fs");
 const path = require("path");
 const {
@@ -67,6 +67,81 @@ function copyBundledServerNodeModules(serverDir, serverBuildModules, opts = {}) 
   log(`[fix-modules] 重建 server node_modules → ${serverNodeModules}`);
 }
 
+function findCachedRcedit() {
+  const cacheRoots = [
+    process.env.ELECTRON_BUILDER_CACHE,
+    process.env.LOCALAPPDATA && path.join(process.env.LOCALAPPDATA, "electron-builder", "Cache"),
+  ].filter(Boolean);
+
+  const candidates = [];
+  for (const cacheRoot of cacheRoots) {
+    const winCodeSignRoot = path.join(cacheRoot, "winCodeSign");
+    let entries = [];
+    try {
+      entries = fs.readdirSync(winCodeSignRoot, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const candidate = path.join(winCodeSignRoot, entry.name, "rcedit-x64.exe");
+      if (fs.existsSync(candidate)) {
+        candidates.push(candidate);
+      }
+    }
+  }
+
+  candidates.sort((a, b) => {
+    try {
+      return fs.statSync(b).mtimeMs - fs.statSync(a).mtimeMs;
+    } catch {
+      return 0;
+    }
+  });
+  return candidates[0] || null;
+}
+
+function editWindowsExecutableResources(context, resourcesDir) {
+  const productFilename = context.packager.appInfo.productFilename;
+  const productName = context.packager.appInfo.productName || productFilename;
+  const version = context.packager.appInfo.version;
+  const exeName = `${productFilename}.exe`;
+  const exePath = path.join(context.appOutDir, exeName);
+  const iconPath = path.resolve(__dirname, "..", "desktop", "src", "icon.ico");
+  const rceditPath = findCachedRcedit()
+    || path.resolve(__dirname, "..", "node_modules", "electron-winstaller", "vendor", "rcedit.exe");
+  const requestedExecutionLevel =
+    context.packager.platformSpecificBuildOptions?.requestedExecutionLevel || "asInvoker";
+
+  if (!fs.existsSync(exePath)) {
+    throw new Error(`[fix-modules] Windows executable missing: ${exePath}`);
+  }
+  if (!fs.existsSync(iconPath)) {
+    throw new Error(`[fix-modules] Windows icon missing: ${iconPath}`);
+  }
+  if (!rceditPath || !fs.existsSync(rceditPath)) {
+    console.warn("[fix-modules] Local rcedit.exe missing; Windows executable resource edit skipped");
+    return;
+  }
+
+  try {
+    execFileSync(rceditPath, [
+      exePath,
+      "--set-icon", iconPath,
+      "--set-version-string", "FileDescription", productName,
+      "--set-version-string", "ProductName", productName,
+      "--set-version-string", "OriginalFilename", exeName,
+      "--set-version-string", "InternalName", productFilename,
+      "--set-file-version", version,
+      "--set-product-version", version,
+      "--set-requested-execution-level", requestedExecutionLevel,
+    ], { stdio: "inherit" });
+    console.log(`[fix-modules] Windows executable resources updated: ${path.relative(resourcesDir, exePath)}`);
+  } catch (err) {
+    console.warn(`[fix-modules] Windows executable resource edit skipped: ${err.message}`);
+  }
+}
+
 exports.default = async function (context) {
   const platformName = context.packager.platform.name;
   const arch = context.arch === 1 ? "x64" : context.arch === 3 ? "arm64" : "x64";
@@ -84,6 +159,9 @@ exports.default = async function (context) {
     ? path.join(context.appOutDir, context.packager.appInfo.productFilename + ".app",
         "Contents", "Resources")
     : path.join(context.appOutDir, "resources");
+  if (platformName === "windows") {
+    editWindowsExecutableResources(context, resourcesDir);
+  }
   if (platformName === "mac") {
     const computerUseHelper = path.join(resourcesDir, "computer-use", "macos", "hana-computer-use-helper");
     if (!fs.existsSync(computerUseHelper)) {

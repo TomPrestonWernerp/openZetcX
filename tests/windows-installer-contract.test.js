@@ -42,7 +42,7 @@ describe("Windows NSIS installer contract", () => {
     const macro = extractMacro(source, "openZetcXStopInstallDirProcesses");
     const cleaner = extractMacro(source, "openZetcXWriteInstallDirProcessCleaner");
 
-    expect(macro).toContain("HANA_INSTALL_DIR");
+    expect(macro).toContain('-File "$1" "$INSTDIR"');
     expect(macro).toContain("openZetcXWriteInstallDirProcessCleaner");
     expect(cleaner).toContain("Get-CimInstance Win32_Process");
     expect(cleaner).toContain("CommandLine");
@@ -72,6 +72,14 @@ describe("Windows NSIS installer contract", () => {
       expect(macro).toContain("$$_.ProcessId -ne $$installerPid");
       expect(macro).not.toContain("return $$value.IndexOf($$installFull");
     }
+  });
+
+  it("passes the install directory to PowerShell without the NSIS System plugin", () => {
+    const source = fs.readFileSync(path.join(root, "build", "installer.nsh"), "utf-8");
+
+    expect(source).toContain('-File "$1" "$INSTDIR"');
+    expect(source).toContain("$$args[0]");
+    expect(source).not.toContain("System::Call");
   });
 
   it("future uninstallers remove Hana-owned install surfaces without atomic old-install staging", () => {
@@ -106,5 +114,13 @@ describe("Windows NSIS installer contract", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf-8"));
 
     expect(pkg.build.nsis.allowToChangeInstallationDirectory).toBe(false);
+  });
+
+  it("uses a dedicated openZetcX installer identity instead of legacy Hanako", () => {
+    const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf-8"));
+
+    expect(pkg.build.appId).toBe("com.openZetcX.app");
+    expect(pkg.build.nsis.guid).toBe("0fa98e28-14dd-5f40-8a17-00dd94e6a91b");
+    expect(pkg.build.nsis.guid).not.toBe("3802e236-0c74-5d5f-a339-e8fa54299135");
   });
 });

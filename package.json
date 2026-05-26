@@ -1,6 +1,6 @@
 {
   "name": "openzetcx",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "type": "module",
   "description": "openZetcX - a personal AI agent with memory and soul",
   "license": "Apache-2.0",
@@ -42,11 +42,11 @@
     "build:client": "npm run build:main && npm run build:preload && npm run build:renderer && npm run build:theme",
     "build:packages": "npm run build --workspaces --if-present",
     "generate:windows-icon": "node scripts/generate-windows-icon.cjs",
-    "pack": "npm run build:computer-use-helper && npm run build:client && npm run build:server && electron-builder --dir",
+    "pack": "npm run build:computer-use-helper && npm run build:client && npm run build:server && node --max-old-space-size=8192 ./node_modules/electron-builder/cli.js --dir",
     "install:local": "npm run pack && rm -rf /Applications/openZetcX.app && cp -R dist/mac-arm64/openZetcX.app /Applications/ && printf 'provider: github\\nowner: TomPrestonWernerp\\nrepo: openZetcX\\n' > /Applications/openZetcX.app/Contents/Resources/app-update.yml && node scripts/sign-local.cjs",
-    "dist": "npm run build:computer-use-helper && npm run build:client && npm run build:server && electron-builder --mac dmg",
-    "dist:win": "npm run build:computer-use-helper && npm run build:windows-sandbox-helper && npm run generate:windows-icon && npm run build:client && npm run build:server && electron-builder --win nsis",
-    "dist:linux": "npm run build:client && npm run build:server && electron-builder --linux AppImage deb",
+    "dist": "npm run build:computer-use-helper && npm run build:client && npm run build:server && node --max-old-space-size=8192 ./node_modules/electron-builder/cli.js --mac dmg",
+    "dist:win": "npm run build:computer-use-helper && npm run build:windows-sandbox-helper && npm run generate:windows-icon && node scripts/download-git-portable.js && npm run build:client && npm run build:server && node --max-old-space-size=8192 ./node_modules/electron-builder/cli.js --win nsis",
+    "dist:linux": "npm run build:client && npm run build:server && node --max-old-space-size=8192 ./node_modules/electron-builder/cli.js --linux AppImage deb",
     "test": "vitest run --exclude '**/.claude/**' --exclude '**/.cache/**' --exclude '**/dist/**' --exclude '**/dist-server/**' --exclude '**/dist-computer-use/**' --exclude '**/dist-sandbox/**'",
     "build:server": "node scripts/build-server.mjs",
     "lint": "eslint .",
@@ -122,7 +122,7 @@
     "vitest": "^4.0.18"
   },
   "build": {
-    "appId": "com.openzetcx.app",
+    "appId": "com.openZetcX.app",
     "productName": "openZetcX",
     "asar": true,
     "afterPack": "./scripts/fix-modules.cjs",
@@ -199,6 +199,7 @@
       "target": "nsis",
       "icon": "desktop/src/icon.ico",
       "artifactName": "${productName}-${version}-Windows-${arch}.${ext}",
+      "signAndEditExecutable": false,
       "requestedExecutionLevel": "asInvoker",
       "extraResources": [
         {
@@ -212,6 +213,7 @@
       ]
     },
     "nsis": {
+      "guid": "0fa98e28-14dd-5f40-8a17-00dd94e6a91b",
       "oneClick": false,
       "allowToChangeInstallationDirectory": false,
       "include": "build/installer.nsh",

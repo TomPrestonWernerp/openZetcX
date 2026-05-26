@@ -46,7 +46,7 @@ CRCCheck off
   Push $0
   FileOpen $0 "${_SCRIPT}" w
   FileWrite $0 `$$ErrorActionPreference = 'SilentlyContinue'$\r$\n`
-  FileWrite $0 `$$installDir = [Environment]::GetEnvironmentVariable('HANA_INSTALL_DIR')$\r$\n`
+  FileWrite $0 `$$installDir = if ($$args.Count -gt 0) { $$args[0] } else { [Environment]::GetEnvironmentVariable('HANA_INSTALL_DIR') }$\r$\n`
   FileWrite $0 `if ([string]::IsNullOrWhiteSpace($$installDir)) { exit 0 }$\r$\n`
   FileWrite $0 `$$installFull = [System.IO.Path]::GetFullPath($$installDir).TrimEnd('\')$\r$\n`
   FileWrite $0 `$$installPrefix = $$installFull + '\'$\r$\n`
@@ -78,7 +78,7 @@ CRCCheck off
   Push $0
   FileOpen $0 "${_SCRIPT}" w
   FileWrite $0 `$$ErrorActionPreference = 'SilentlyContinue'$\r$\n`
-  FileWrite $0 `$$installDir = [Environment]::GetEnvironmentVariable('HANA_INSTALL_DIR')$\r$\n`
+  FileWrite $0 `$$installDir = if ($$args.Count -gt 0) { $$args[0] } else { [Environment]::GetEnvironmentVariable('HANA_INSTALL_DIR') }$\r$\n`
   FileWrite $0 `if ([string]::IsNullOrWhiteSpace($$installDir)) { exit 1 }$\r$\n`
   FileWrite $0 `$$installFull = [System.IO.Path]::GetFullPath($$installDir).TrimEnd('\')$\r$\n`
   FileWrite $0 `$$installPrefix = $$installFull + '\'$\r$\n`
@@ -116,8 +116,7 @@ CRCCheck off
   InitPluginsDir
   StrCpy $1 "$PLUGINSDIR\openZetcX-stop-install-dir.ps1"
   !insertmacro openZetcXWriteInstallDirProcessCleaner "$1"
-  System::Call 'kernel32::SetEnvironmentVariable(t "HANA_INSTALL_DIR", t "$INSTDIR") i.r0'
-  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$1"`
+  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$1" "$INSTDIR"`
   Pop $0
   Pop $1
   Pop $0
@@ -129,8 +128,7 @@ CRCCheck off
   InitPluginsDir
   StrCpy $1 "$PLUGINSDIR\openZetcX-find-install-dir.ps1"
   !insertmacro openZetcXWriteInstallDirProcessFinder "$1"
-  System::Call 'kernel32::SetEnvironmentVariable(t "HANA_INSTALL_DIR", t "$INSTDIR") i.r0'
-  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$1"`
+  nsExec::ExecToLog `"$SYSDIR\WindowsPowerShell\v1.0\powershell.exe" -NoProfile -ExecutionPolicy Bypass -File "$1" "$INSTDIR"`
   Pop ${_RETURN}
   Pop $1
   Pop $0

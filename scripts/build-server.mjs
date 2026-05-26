@@ -391,6 +391,117 @@ function removeBinDirs(nmDir) {
 }
 removeBinDirs(path.join(outDir, "node_modules"));
 
+function pruneBundledNodeModules(nmDir) {
+  const removableDirNames = new Set([
+    ".github",
+    ".vscode",
+    "benchmark",
+    "benchmarks",
+    "coverage",
+    "docs",
+    "example",
+    "examples",
+    "test",
+    "tests",
+    "__tests__",
+  ]);
+  const removableSuffixes = [
+    ".d.ts",
+    ".d.ts.map",
+    ".map",
+    ".pdb",
+    ".tsbuildinfo",
+  ];
+  let removedFiles = 0;
+  let removedDirs = 0;
+  let removedSize = 0;
+
+  function removeFile(filePath) {
+    try {
+      const stat = fs.statSync(filePath);
+      fs.rmSync(filePath, { force: true });
+      removedFiles++;
+      removedSize += stat.size || 0;
+    } catch {}
+  }
+
+  function removeDir(dirPath) {
+    try {
+      const stack = [dirPath];
+      while (stack.length > 0) {
+        const current = stack.pop();
+        let entries = [];
+        try {
+          entries = fs.readdirSync(current, { withFileTypes: true });
+        } catch {
+          continue;
+        }
+        for (const entry of entries) {
+          const full = path.join(current, entry.name);
+          if (entry.isDirectory()) {
+            stack.push(full);
+          } else if (entry.isFile()) {
+            try {
+              removedSize += fs.statSync(full).size || 0;
+            } catch {}
+          }
+        }
+      }
+      fs.rmSync(dirPath, { recursive: true, force: true });
+      removedDirs++;
+    } catch {}
+  }
+
+  function walk(dirPath) {
+    let entries;
+    try {
+      entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const entry of entries) {
+      const full = path.join(dirPath, entry.name);
+      if (entry.isDirectory()) {
+        if (removableDirNames.has(entry.name.toLowerCase())) {
+          removeDir(full);
+          continue;
+        }
+        walk(full);
+      } else if (entry.isFile()) {
+        const lower = entry.name.toLowerCase();
+        if (removableSuffixes.some((suffix) => lower.endsWith(suffix))) {
+          removeFile(full);
+        }
+      }
+    }
+  }
+
+  const nodePtyDir = path.join(nmDir, "node-pty");
+  if (fs.existsSync(nodePtyDir)) {
+    for (const rel of ["deps", "src", "third_party", "typings"]) {
+      removeDir(path.join(nodePtyDir, rel));
+    }
+    const keepPrebuild = `${platform}-${arch}`;
+    const prebuildsDir = path.join(nodePtyDir, "prebuilds");
+    let entries = [];
+    try {
+      entries = fs.readdirSync(prebuildsDir, { withFileTypes: true });
+    } catch {}
+    for (const entry of entries) {
+      if (entry.isDirectory() && entry.name !== keepPrebuild) {
+        removeDir(path.join(prebuildsDir, entry.name));
+      }
+    }
+  }
+
+  walk(nmDir);
+  const MB = (n) => (n / 1024 / 1024).toFixed(0);
+  console.log(
+    `[build-server] runtime prune: removed ${removedFiles} files and ${removedDirs} dirs (${MB(removedSize)}MB)`,
+  );
+}
+pruneBundledNodeModules(path.join(outDir, "node_modules"));
+
 console.log("[build-server] dependencies installed");
 
 // ── 8. @vercel/nft 追踪：只保留运行时实际需要的文件 ──
@@ -401,10 +512,48 @@ console.log("[build-server] running nft trace...");
 // nft 是 ESM，用动态 import
 const { nodeFileTrace } = await import("@vercel/nft");
 let fileList;
-try {
+const shouldRunNftTrace =
+  process.env.OPENZETCX_SKIP_NFT_TRACE !== "1" &&
+  (platform !== "win32" || process.env.OPENZETCX_ENABLE_WINDOWS_NFT_TRACE === "1");
+const NFT_PERMISSION_ERROR_CODES = new Set(["EACCES", "EPERM"]);
+function isNftPermissionError(err) {
+  return err && NFT_PERMISSION_ERROR_CODES.has(err.code);
+}
+if (!shouldRunNftTrace) {
+  console.warn("[build-server] nft trace skipped on Windows; keeping full server node_modules");
+  fileList = null;
+} else try {
   ({ fileList } = await nodeFileTrace(
     [path.join(outDir, "bundle", "index.js")],
-    { base: outDir, conditions: ["node", "import"] },
+    {
+      base: outDir,
+      conditions: ["node", "import"],
+      fileIOConcurrency: 64,
+      readFile: async (filePath) => {
+        try {
+          return fs.promises.readFile(filePath, "utf8");
+        } catch (err) {
+          if (err?.code === "ENOENT" || err?.code === "EISDIR" || isNftPermissionError(err)) return null;
+          throw err;
+        }
+      },
+      readlink: async (filePath) => {
+        try {
+          return await fs.promises.readlink(filePath);
+        } catch (err) {
+          if (err?.code === "EINVAL" || err?.code === "ENOENT" || err?.code === "UNKNOWN" || isNftPermissionError(err)) return null;
+          throw err;
+        }
+      },
+      stat: async (filePath) => {
+        try {
+          return await fs.promises.stat(filePath);
+        } catch (err) {
+          if (err?.code === "ENOENT" || isNftPermissionError(err)) return null;
+          throw err;
+        }
+      },
+    },
   ));
 } catch (e) {
   // Windows CI 上 nft 可能因用户目录不存在而报错，跳过裁剪

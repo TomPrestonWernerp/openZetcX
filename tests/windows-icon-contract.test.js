@@ -57,13 +57,13 @@ describe("Windows icon contract", () => {
     }
   });
 
-  it("separates app window icon from tray icon and sets Windows taskbar identity", () => {
+  it("uses the app icon for Windows tray and sets Windows taskbar identity", () => {
     const main = fs.readFileSync(path.join(ROOT, "desktop", "main.cjs"), "utf-8");
 
     expect(main).toContain("app.setAppUserModelId");
     expect(main).toContain("com.openZetcX.app");
     expect(main).toContain('"icon.ico"');
-    expect(main).toContain('"tray.ico"');
+    expect(main).toContain('nativeImage.createFromPath(path.join(__dirname, "src", "icon.ico"))');
     expect(main).not.toMatch(/titleBarOpts[\s\S]*?"tray\.ico"[\s\S]*?return\s+\{\s*frame:\s*false,\s*icon:/);
   });
 });

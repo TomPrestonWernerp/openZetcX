@@ -42,6 +42,7 @@ describe('desk-actions workspace roots', () => {
     };
     useStore.setState({
       serverPort: 62950,
+      currentAgentId: 'agent-a',
       deskBasePath: '',
       deskCurrentPath: '',
       deskFiles: [],
@@ -708,5 +709,26 @@ describe('desk-actions workspace roots', () => {
     expect(mockHanaFetch).toHaveBeenNthCalledWith(2, '/api/desk/files?dir=%2Fworkspace&subdir=src%2Fcomponents');
     expect(useStore.getState().deskExpandedPaths).toEqual(['src', 'src/components']);
     expect(useStore.getState().deskSelectedPath).toBe('src/components/DeskTree.tsx');
+  });
+
+  it('triggers the current agent heartbeat after saving jian.md', async () => {
+    useStore.setState({
+      deskBasePath: '/workspace',
+      deskCurrentPath: '',
+      deskJianContent: '15:35 提醒我去接水',
+      currentAgentId: 'agent-a',
+    } as never);
+    mockHanaFetch
+      .mockResolvedValueOnce(jsonResponse({ ok: true, content: '15:35 提醒我去接水' }))
+      .mockResolvedValueOnce(jsonResponse({ files: [{ name: 'jian.md', isDir: false }], basePath: '/workspace' }))
+      .mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+    const { saveJianContent } = await import('../../stores/desk-actions');
+    await saveJianContent();
+    await Promise.resolve();
+
+    expect(mockHanaFetch).toHaveBeenNthCalledWith(3, '/api/desk/heartbeat?agentId=agent-a', {
+      method: 'POST',
+    });
   });
 });

@@ -12,7 +12,7 @@ import appIconUrl from '../../../icon.png';
 import styles from '../Settings.module.css';
 
 const hana = window.hana;
-const DISPLAY_VERSION = '0.1.0';
+const DISPLAY_VERSION = '0.4.0';
 
 export function AboutTab() {
   const settingsConfig = useSettingsStore(s => s.settingsConfig);

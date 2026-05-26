@@ -109,6 +109,7 @@ const migrations = {
  */
 export function runMigrations(ctx) {
   ctx.hanakoHome ||= ctx.openZetcXHome;
+  ctx.openZetcXHome ||= ctx.hanakoHome;
   const { prefs, log } = ctx;
   const preferences = prefs.getPreferences();
   const currentVersion = preferences._dataVersion || 0;

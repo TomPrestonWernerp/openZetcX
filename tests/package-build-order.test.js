@@ -34,6 +34,17 @@ describe("package build order", () => {
     expectClientBeforeServer("dist:linux", scripts["dist:linux"]);
   });
 
+  it("prepares PortableGit before Windows packaging", () => {
+    const scripts = packageScripts();
+    const script = scripts["dist:win"];
+    const gitIndex = script.indexOf("node scripts/download-git-portable.js");
+    const builderIndex = script.indexOf("electron-builder");
+
+    expect(gitIndex, "dist:win must prepare bundled Git for installed Windows apps").toBeGreaterThanOrEqual(0);
+    expect(builderIndex, "dist:win must run electron-builder").toBeGreaterThanOrEqual(0);
+    expect(gitIndex, "dist:win must prepare bundled Git before electron-builder copies resources").toBeLessThan(builderIndex);
+  });
+
   it("builds renderer assets before the server runtime in the release workflow", () => {
     const workflow = fs.readFileSync(path.join(rootDir, ".github", "workflows", "build.yml"), "utf-8");
 

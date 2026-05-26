@@ -16,7 +16,6 @@ export function SplashApp() {
   const avatarSrc = appIconUrl;
   const [text, setText] = useState('');
   const [switching, setSwitching] = useState(false);
-  const [symbol, setSymbol] = useState(DEFAULT_VISUAL.symbol);
   const [accentColor, setAccentColor] = useState(DEFAULT_VISUAL.accent);
   const linesRef = useRef<string[]>([]);
   const indexRef = useRef(0);
@@ -44,7 +43,6 @@ export function SplashApp() {
         if (splashInfo?.yuan) yuan = splashInfo.yuan;
 
         const visual = getYuanVisual(yuan);
-        setSymbol(visual.symbol);
         setAccentColor(visual.accent);
       } catch {}
 
@@ -110,7 +108,7 @@ export function SplashApp() {
       />
       <div className="splash-text-row">
         <p className={`splash-text${switching ? ' switching' : ''}`}>{text}</p>
-        <span className="splash-sakura" style={{ color: accentColor }}>{symbol}</span>
+        <span className="splash-loader" style={{ color: accentColor }} aria-hidden="true" />
       </div>
     </div>
   );

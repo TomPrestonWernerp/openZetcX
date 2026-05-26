@@ -53,7 +53,7 @@ export function WorkTab() {
         if (ac.signal.aborted) return;
         const desk: AgentDeskConfig = {
           home_folder: data.desk?.home_folder || '',
-          heartbeat_enabled: data.desk?.heartbeat_enabled !== false,
+          heartbeat_enabled: data.desk?.heartbeat_enabled === true,
           heartbeat_interval: data.desk?.heartbeat_interval ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
         };
         setAgentDesk(desk);

@@ -409,6 +409,14 @@ export async function saveJianContent(content?: string): Promise<void> {
     const st = useStore.getState();
     st.setDeskFiles(data2.files || []);
     st.setDeskTreeFiles(st.deskCurrentPath || '', data2.files || []);
+    const agentId = st.currentAgentId;
+    if (agentId) {
+      void hanaFetch(`/api/desk/heartbeat?agentId=${encodeURIComponent(agentId)}`, {
+        method: 'POST',
+      }).catch(err => {
+        console.warn('[jian] trigger heartbeat failed:', err);
+      });
+    }
   } catch (err) {
     console.error('[jian] save jian.md failed:', err);
   }

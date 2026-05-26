@@ -49,16 +49,21 @@
             white-space: nowrap;
         }
         .splash-text.switching { opacity: 0; }
-        .splash-sakura {
+        .splash-loader {
+            width: 14px;
+            height: 14px;
             display: inline-flex;
-            align-items: center;
-            font-size: 1.05rem;
-            color: var(--splash-accent, #537D96);
-            flex-shrink: 0;
-            line-height: 1;
-            animation: spin 4s linear infinite;
+            flex: 0 0 14px;
+            border-radius: 999px;
+            border: 1.5px solid rgba(83, 125, 150, 0.22);
+            border-top-color: currentColor;
+            opacity: 0.9;
+            animation: spin 1s linear infinite;
         }
         @keyframes spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+        @media (prefers-reduced-motion: reduce) {
+            .splash-loader { animation-duration: 1.8s; }
+        }
     </style>
 </head>
 <body>

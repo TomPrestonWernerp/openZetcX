@@ -62,7 +62,7 @@ const {
   resolveGpuStartupPolicy,
 } = require("./src/shared/gpu-startup-policy.cjs");
 
-const APP_USER_MODEL_ID = "com.openzetcx.app"; // Keep in sync with package.json build.appId.
+const APP_USER_MODEL_ID = "com.openZetcX.app"; // Keep in sync with package.json build.appId.
 const REQUIRED_SERVER_API_CONTRACT_VERSION = "openzetcx-api-2026-05-sessions-marketplace";
 
 // preload 缺失时 Electron 会静默忽略，renderer 拿不到 window.hana →
@@ -956,7 +956,7 @@ function createTray() {
   const isDev = !app.isPackaged;
   let icon;
   if (process.platform === "win32") {
-    const appIcon = nativeImage.createFromPath(path.join(__dirname, "src", "icon.png"));
+    const appIcon = nativeImage.createFromPath(path.join(__dirname, "src", "icon.ico"));
     icon = appIcon.isEmpty() ? appIcon : appIcon.resize({ width: 16, height: 16 });
   } else {
     const iconName = isDev ? "tray-dev-template.png" : "tray-template.png";

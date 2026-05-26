@@ -82,4 +82,11 @@ describe("local startup contract", () => {
     expect(buildServer).toContain('path.join(outDir, "hana")');
     expect(buildServer).toContain('path.join(outDir, "hana.cmd")');
   });
+
+  it("server runtime pruning keeps package doc directories used by yaml at runtime", () => {
+    const buildServer = fs.readFileSync(path.join(ROOT, "scripts", "build-server.mjs"), "utf-8");
+
+    expect(buildServer).not.toContain('"doc",');
+    expect(buildServer).toContain('"docs",');
+  });
 });

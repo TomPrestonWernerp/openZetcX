@@ -125,4 +125,28 @@ describe('WorkTab workspace persistence', () => {
 
     expect(await screen.findByDisplayValue('31')).toBeTruthy();
   });
+
+  it('does not display patrol mode as enabled unless the agent config explicitly enables it', async () => {
+    mockHanaFetch.mockImplementation((url: string, options?: RequestInit) => {
+      if (url === '/api/agents/agent-a/config' && !options?.method) {
+        return Promise.resolve(jsonResponse({
+          desk: {
+            home_folder: '/old-home',
+          },
+        }));
+      }
+      if (url === '/api/agents/agent-a/config' && options?.method === 'PUT') {
+        return Promise.resolve(jsonResponse({ ok: true }));
+      }
+      throw new Error(`unexpected request: ${url}`);
+    });
+    const { WorkTab } = await import('../../settings/tabs/WorkTab');
+
+    render(<WorkTab />);
+
+    const intervalInput = await screen.findByDisplayValue('31') as HTMLInputElement;
+    const switches = screen.getAllByRole('switch');
+    expect(switches[2].getAttribute('aria-checked')).toBe('false');
+    expect(intervalInput.disabled).toBe(true);
+  });
 });

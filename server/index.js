@@ -170,7 +170,7 @@ const serverNetwork = resolveServerListenOptions(hanakoHome);
 const serverRuntimeState = {
   mode: serverNetwork.mode,
   listenHost: serverNetwork.host,
-  bindHost: "0.0.0.0",
+  bindHost: serverNetwork.mode === "loopback" ? serverNetwork.host : "0.0.0.0",
   actualPort: null,
   applyNetworkConfig(network) {
     this.mode = network.mode;
