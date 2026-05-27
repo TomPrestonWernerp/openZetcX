@@ -110,8 +110,6 @@ function editWindowsExecutableResources(context, resourcesDir) {
   const iconPath = path.resolve(__dirname, "..", "desktop", "src", "icon.ico");
   const rceditPath = findCachedRcedit()
     || path.resolve(__dirname, "..", "node_modules", "electron-winstaller", "vendor", "rcedit.exe");
-  const requestedExecutionLevel =
-    context.packager.platformSpecificBuildOptions?.requestedExecutionLevel || "asInvoker";
 
   if (!fs.existsSync(exePath)) {
     throw new Error(`[fix-modules] Windows executable missing: ${exePath}`);
@@ -133,7 +131,6 @@ function editWindowsExecutableResources(context, resourcesDir) {
       "--set-version-string", "InternalName", productFilename,
       "--set-file-version", version,
       "--set-product-version", version,
-      "--set-requested-execution-level", requestedExecutionLevel,
     ], { stdio: "inherit" });
     console.log(`[fix-modules] Windows executable resources updated: ${path.relative(resourcesDir, exePath)}`);
   } catch (err) {
