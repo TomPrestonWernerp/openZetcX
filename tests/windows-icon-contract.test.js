@@ -39,6 +39,8 @@ describe("Windows icon contract", () => {
     const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf-8"));
 
     expect(pkg.build.win.icon).toBe("desktop/src/icon.ico");
+    expect(pkg.build.win.signAndEditExecutable).toBe(false);
+    expect(pkg.build.afterPack).toBe("./scripts/fix-modules.cjs");
     expect(pkg.build.nsis.installerIcon).toBe("desktop/src/icon.ico");
     expect(pkg.build.nsis.uninstallerIcon).toBe("desktop/src/icon.ico");
     expect(pkg.build.files).toContain("desktop/src/**/*.{html,icns,ico,png,svg,json}");
@@ -65,5 +67,14 @@ describe("Windows icon contract", () => {
     expect(main).toContain('"icon.ico"');
     expect(main).toContain('nativeImage.createFromPath(path.join(__dirname, "src", "icon.ico"))');
     expect(main).not.toMatch(/titleBarOpts[\s\S]*?"tray\.ico"[\s\S]*?return\s+\{\s*frame:\s*false,\s*icon:/);
+  });
+
+  it("fails packaged Windows builds if the local executable icon stamp is skipped", () => {
+    const fixModules = fs.readFileSync(path.join(ROOT, "scripts", "fix-modules.cjs"), "utf-8");
+
+    expect(fixModules).toContain('"--set-icon", iconPath');
+    expect(fixModules).toContain("Local rcedit.exe missing; cannot stamp Windows executable icon");
+    expect(fixModules).toContain("Windows executable resource edit failed");
+    expect(fixModules).not.toContain("Windows executable resource edit skipped");
   });
 });

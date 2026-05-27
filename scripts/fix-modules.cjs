@@ -120,8 +120,7 @@ function editWindowsExecutableResources(context, resourcesDir) {
     throw new Error(`[fix-modules] Windows icon missing: ${iconPath}`);
   }
   if (!rceditPath || !fs.existsSync(rceditPath)) {
-    console.warn("[fix-modules] Local rcedit.exe missing; Windows executable resource edit skipped");
-    return;
+    throw new Error("[fix-modules] Local rcedit.exe missing; cannot stamp Windows executable icon");
   }
 
   try {
@@ -138,7 +137,7 @@ function editWindowsExecutableResources(context, resourcesDir) {
     ], { stdio: "inherit" });
     console.log(`[fix-modules] Windows executable resources updated: ${path.relative(resourcesDir, exePath)}`);
   } catch (err) {
-    console.warn(`[fix-modules] Windows executable resource edit skipped: ${err.message}`);
+    throw new Error(`[fix-modules] Windows executable resource edit failed: ${err.message}`);
   }
 }
 
