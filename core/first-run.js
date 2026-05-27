@@ -16,6 +16,10 @@ import {
   ensureDefaultWorkspace,
 } from "../shared/default-workspace.js";
 
+const REMOVED_BUNDLED_SKILLS = new Set([
+  "openzetcx-brand-guard",
+]);
+
 /**
  * 确保 ~/.openZetcX/ 数据目录就绪
  * @param {string} openZetcXHome - ~/.openZetcX 绝对路径
@@ -160,6 +164,8 @@ function syncSkills(srcDir, dstDir) {
   fs.mkdirSync(dstDir, { recursive: true });
 
   const entries = fs.readdirSync(srcDir, { withFileTypes: true });
+  const bundledSkillNames = new Set();
+
   for (const entry of entries) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
 
@@ -168,6 +174,7 @@ function syncSkills(srcDir, dstDir) {
 
     // 只要源里有 SKILL.md 就同步整个目录
     if (!fs.existsSync(path.join(skillSrc, "SKILL.md"))) continue;
+    bundledSkillNames.add(entry.name);
 
     try {
       safeCopyDir(skillSrc, skillDst);
@@ -177,6 +184,20 @@ function syncSkills(srcDir, dstDir) {
         context: { skill: entry.name },
       }));
       // Continue with other skills, don't abort
+    }
+  }
+
+  for (const skillName of REMOVED_BUNDLED_SKILLS) {
+    if (bundledSkillNames.has(skillName)) continue;
+    const skillDst = path.join(dstDir, skillName);
+    if (!fs.existsSync(skillDst)) continue;
+    try {
+      fs.rmSync(skillDst, { recursive: true, force: true });
+    } catch (err) {
+      errorBus.report(new AppError('SKILL_SYNC_FAILED', {
+        cause: err instanceof Error ? err : new Error(String(err)),
+        context: { skill: skillName, action: 'remove-obsolete' },
+      }));
     }
   }
 }

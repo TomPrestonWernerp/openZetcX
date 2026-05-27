@@ -55,4 +55,20 @@ describe("first run default workspace", () => {
     expect(cfg.desk.heartbeat_interval).toBe(31);
     expect(cfg.memory.enabled).toBe(true);
   });
+
+  it("removes discontinued bundled skills during startup sync", async () => {
+    const skillsSrc = path.join(tmpDir, "skills2set");
+    const activeSkill = path.join(skillsSrc, "hana-plugin-creator");
+    const removedSkill = path.join(openZetcXHome, "skills", "openzetcx-brand-guard");
+    fs.mkdirSync(activeSkill, { recursive: true });
+    fs.mkdirSync(removedSkill, { recursive: true });
+    fs.writeFileSync(path.join(activeSkill, "SKILL.md"), "---\nname: hana-plugin-creator\n---\n", "utf-8");
+    fs.writeFileSync(path.join(removedSkill, "SKILL.md"), "---\nname: openzetcx-brand-guard\n---\n", "utf-8");
+
+    const { ensureFirstRun } = await import("../core/first-run.js");
+    ensureFirstRun(openZetcXHome, productDir);
+
+    expect(fs.existsSync(path.join(openZetcXHome, "skills", "hana-plugin-creator", "SKILL.md"))).toBe(true);
+    expect(fs.existsSync(removedSkill)).toBe(false);
+  });
 });
