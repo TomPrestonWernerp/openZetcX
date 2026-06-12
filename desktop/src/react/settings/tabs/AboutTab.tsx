@@ -11,10 +11,10 @@ import type { AutoLaunchStatus } from '../../types';
 import appIconUrl from '../../../icon.png';
 import styles from '../Settings.module.css';
 
-const hana = window.hana;
-const DISPLAY_VERSION = '0.4.0';
+const DISPLAY_VERSION = '0.4.1';
 
 export function AboutTab() {
+  const hana = window.hana;
   const settingsConfig = useSettingsStore(s => s.settingsConfig);
   const [version, setVersion] = useState('');
   const [autoLaunch, setAutoLaunch] = useState<AutoLaunchStatus | null>(null);

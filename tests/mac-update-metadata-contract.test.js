@@ -131,4 +131,11 @@ describe("macOS update metadata release contract", () => {
     expect(workflow).not.toContain("Only x64 yml found, using as-is");
     expect(workflow).not.toContain("Only arm64 yml found, using as-is");
   });
+
+  it("publishes tag releases as stable latest releases for the default updater channel", () => {
+    const workflow = fs.readFileSync(workflowPath, "utf8");
+
+    expect(workflow).not.toContain("--prerelease \\");
+    expect(workflow).toContain("gh release edit \"${{ github.ref_name }}\" --draft=false --latest");
+  });
 });
