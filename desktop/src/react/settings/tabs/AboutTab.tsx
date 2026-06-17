@@ -11,7 +11,7 @@ import type { AutoLaunchStatus } from '../../types';
 import appIconUrl from '../../../icon.png';
 import styles from '../Settings.module.css';
 
-const DISPLAY_VERSION = '0.4.1';
+const DISPLAY_VERSION = '0.4.2';
 
 export function AboutTab() {
   const hana = window.hana;

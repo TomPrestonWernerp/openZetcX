@@ -56,7 +56,7 @@ describe("plugin SDK examples and docs", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "hana-provider-scaffold-"));
     try {
       execFileSync("python3", [
-        path.join(root, "skills2set", "hana-plugin-creator", "scripts", "create_hana_plugin.py"),
+        path.join(root, "skills2set", "openZetcX-plugin-creator", "scripts", "create_openzetcx_plugin.py"),
         "Jimeng Provider",
         "--path",
         tmpDir,

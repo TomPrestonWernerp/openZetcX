@@ -3,8 +3,8 @@
 # ═══════════════════════════════════════════
 agents/
 user/
-!skills2set/hana-plugin-creator/agents/
-!skills2set/hana-plugin-creator/agents/**
+!skills2set/openZetcX-plugin-creator/agents/
+!skills2set/openZetcX-plugin-creator/agents/**
 !skills2set/office-documents/agents/
 !skills2set/office-documents/agents/**
 

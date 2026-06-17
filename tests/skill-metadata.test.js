@@ -153,13 +153,13 @@ describe("SkillManager metadata scanning", () => {
 
   it("resource-loader skills can opt out of default enablement through SKILL.md metadata", () => {
     const root = makeTmpRoot();
-    const skillDir = path.join(root, "skills", "hana-plugin-creator");
+    const skillDir = path.join(root, "skills", "openZetcX-plugin-creator");
     const skillFile = path.join(skillDir, "SKILL.md");
     fs.mkdirSync(skillDir, { recursive: true });
     fs.writeFileSync(skillFile, [
       "---",
-      "name: hana-plugin-creator",
-      "description: Create Hana plugins.",
+      "name: openZetcX-plugin-creator",
+      "description: Create openZetcX plugins.",
       "metadata:",
       "  default-enabled: false",
       "---",
@@ -168,13 +168,13 @@ describe("SkillManager metadata scanning", () => {
 
     const manager = new SkillManager({ skillsDir: path.join(root, "skills") });
     manager.init(
-      { getSkills: () => ({ skills: [{ name: "hana-plugin-creator", source: "user", filePath: skillFile }], diagnostics: [] }) },
+      { getSkills: () => ({ skills: [{ name: "openZetcX-plugin-creator", source: "user", filePath: skillFile }], diagnostics: [] }) },
       new Map(),
       new Set(),
     );
 
     expect(manager.allSkills[0]).toMatchObject({
-      name: "hana-plugin-creator",
+      name: "openZetcX-plugin-creator",
       defaultEnabled: false,
     });
     expect(manager.computeDefaultEnabledForNewAgent()).toEqual([]);

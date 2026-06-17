@@ -1,17 +1,17 @@
 ---
-name: hana-plugin-creator
-description: Create Hana plugin scaffolds and guide users through beginner or developer plugin planning, capability checks, manifest setup, runtime tools, iframe UI, SDK templates, and install-ready plugin directories. Use when Hanako/Codex needs to explain what Hana plugins can do, help a user describe a plugin idea, check whether the SDK supports it, or generate/update a Hana plugin with @hana/plugin-runtime, @hana/plugin-sdk, and @hana/plugin-components.
+name: openZetcX-plugin-creator
+description: Create openZetcX plugin scaffolds and guide users through beginner or developer plugin planning, capability checks, manifest setup, runtime tools, iframe UI, SDK templates, and install-ready plugin directories. Use when Codex needs to explain what openZetcX plugins can do, help a user describe a plugin idea, check whether the SDK supports it, or generate/update an openZetcX plugin with @hana/plugin-runtime, @hana/plugin-sdk, and @hana/plugin-components.
 metadata:
   default-enabled: false
 ---
 
-# Hana Plugin Creator
+# openZetcX Plugin Creator
 
-Use this skill for Hana application plugins, not Codex `.codex-plugin` bundles.
+Use this skill for openZetcX application plugins, not Codex `.codex-plugin` bundles.
 
 ## First Contact
 
-On first use, give a map, not an encyclopedia. Explain what Hana plugins can add, ask what the user wants to build, and invite follow-up questions. Expand details only after the user asks or after the chosen scaffold needs them.
+On first use, give a map, not an encyclopedia. Explain what openZetcX plugins can add, ask what the user wants to build, and invite follow-up questions. Expand details only after the user asks or after the chosen scaffold needs them.
 
 Choose the user mode this way:
 
@@ -19,39 +19,39 @@ Choose the user mode this way:
 - If the user explicitly asks for SDK/API/build details or gives code-level requirements, use developer mode.
 - If memory is unavailable, disabled, or uncertain, ask: `你想我用哪种方式帮你创建插件？A. 边讲边做 B. 开发者模式`
 
-Beginner mode tone: encouraging, concrete, and guided. Say that the user can describe the feature in plain language, Hanako will help turn it into a plugin plan and scaffold, and Hanako can answer questions at any step. Ask:
+Beginner mode tone: encouraging, concrete, and guided. Say that the user can describe the feature in plain language, openZetcX will help turn it into a plugin plan and scaffold, and the agent can answer questions at any step. Ask:
 
-1. 你希望 Hanako 多一个什么能力？
+1. 你希望 OpenZetcX 多一个什么能力？
 2. 这个能力是让 Agent 自动调用，还是让你点界面使用？
 3. 它需要界面、文件、联网、外部平台、账号权限吗？
 
 Developer mode tone: concise and collaborative. Lead with the capability surface, then ask for the target contribution and integration boundary.
 
-After delivering a plugin, encourage with grounded product value. Name the real situation where the plugin helps, such as reducing repeated steps, making an external service available inside Hana, turning a manual workflow into an Agent-callable tool, or giving a recurring task a stable UI. Use natural wording such as `这个想法挺实用，适合把每周重复整理的步骤固定下来` or `这个方向比较适合做成工具型插件，因为 Agent 可以在对话里直接调用`. Avoid inflated praise like `你的设想太棒了`.
+After delivering a plugin, encourage with grounded product value. Name the real situation where the plugin helps, such as reducing repeated steps, making an external service available inside openZetcX, turning a manual workflow into an Agent-callable tool, or giving a recurring task a stable UI. Use natural wording such as `这个想法挺实用，适合把每周重复整理的步骤固定下来` or `这个方向比较适合做成工具型插件，因为 Agent 可以在对话里直接调用`. Avoid inflated praise like `你的设想太棒了`.
 
 ## Capability Map
 
-Hana plugins can provide:
+openZetcX plugins can provide:
 
 - Agent-callable tools and slash-style actions.
 - Skills, agents, and knowledge that guide model behavior.
-- Iframe pages, widgets, and cards using Hana theme and host capabilities.
+- Iframe pages, widgets, and cards using openZetcX theme and host capabilities.
 - Lifecycle and EventBus handlers for full-access integrations.
 - Provider contributions for chat and media capabilities, including image/video/speech providers backed by HTTP, OAuth HTTP, local CLI, browser CLI, or plugin runtimes.
 - Extension-style integrations where the app has explicit extension points.
 - SessionFile-backed outputs for files and media.
 
-Hana provides install/enable/reload, per-agent skill toggles, manifest capability checks, iframe host messaging, theme tokens, toast/clipboard/external host APIs, EventBus, data directories, and SDK packages.
+openZetcX provides install/enable/reload, per-agent skill toggles, manifest capability checks, iframe host messaging, theme tokens, toast/clipboard/external host APIs, EventBus, data directories, and SDK packages.
 
 Current boundaries: iframe UI is the stable extension surface. Native renderer components and code sandboxing are not the default path yet. If a request depends on those, explain the gap and propose the closest supported shape.
 
 ## Workflow
 
-1. Find the Hana repo root. Prefer the current workspace if it contains `PLUGIN_SDK.md`, `PLUGINS.md`, and `packages/plugin-runtime`.
+1. Find the openZetcX repo root. Prefer the current workspace if it contains `PLUGIN_SDK.md`, `PLUGINS.md`, and `packages/plugin-runtime`.
 2. Read `.docs/PLUGIN-DEVELOPMENT.md`, `PLUGIN_SDK.md`, and relevant sections of `PLUGINS.md` before changing plugin code. For React UI, also read `packages/plugin-sdk/README.md` and `packages/plugin-components/README.md`.
 3. Pick a template:
    - `direct`: no npm install, no build step, best for a beginner's first runnable plugin.
-   - `guided-react`: React/Vite/SDK starter with shared Hana components and a gentler README.
+   - `guided-react`: React/Vite/SDK starter with shared openZetcX plugin components and a gentler README.
    - `professional-react`: React/Vite/SDK starter for developers who expect package scripts and typed UI code.
 4. Pick the contribution kind:
    - `tool`: restricted plugin with `tools/*.js`.
@@ -59,7 +59,7 @@ Current boundaries: iframe UI is the stable extension surface. Native renderer c
    - `full`: tool, lifecycle/EventBus entry, and iframe UI.
    - `provider`: full-access provider declaration under `providers/*.js`.
 5. Pick the target location:
-   - Built-in plugin shipped with Hana: `plugins/<plugin-id>`.
+   - Built-in plugin shipped with openZetcX: `plugins/<plugin-id>`.
    - Example or template plugin: `examples/plugins/<plugin-id>`.
    - User-installed plugin: the directory reported by `/api/plugins/settings` or `${HANA_HOME}/plugins`.
 6. Generate the scaffold with the bundled script, then adjust names, descriptions, tools, routes, capabilities, and UI to the user's request.
@@ -85,13 +85,13 @@ Current boundaries: iframe UI is the stable extension surface. Native renderer c
 Beginner starter:
 
 ```bash
-python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "My Plugin" --path examples/plugins --audience beginner --template direct
+python3 skills2set/openZetcX-plugin-creator/scripts/create_openzetcx_plugin.py "My Plugin" --path examples/plugins --audience beginner --template direct
 ```
 
 Developer React starter:
 
 ```bash
-python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "My Plugin" --path examples/plugins --audience developer --template professional-react --sdk-mode workspace
+python3 skills2set/openZetcX-plugin-creator/scripts/create_openzetcx_plugin.py "My Plugin" --path examples/plugins --audience developer --template professional-react --sdk-mode workspace
 ```
 
 Useful options:
@@ -108,14 +108,14 @@ Useful options:
 Provider contribution starter:
 
 ```bash
-python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "Jimeng Provider" --path examples/plugins --kind provider --audience developer
+python3 skills2set/openZetcX-plugin-creator/scripts/create_openzetcx_plugin.py "Jimeng Provider" --path examples/plugins --kind provider --audience developer
 ```
 
 ## SDK Rules
 
 - Static `tools/*.js` must export `name`, `description`, `parameters`, and `execute`.
 - React templates may use `@hana/plugin-runtime`, `@hana/plugin-sdk`, and `@hana/plugin-components`.
-- Dev authority is not a manifest permission. Hana grants it from the remembered dev install slot under `${HANA_HOME}/plugins-dev/`, and Agent dev tools are hidden until the user enables the dev tools setting.
+- Dev authority is not a manifest permission. openZetcX grants it from the remembered dev install slot under `${HANA_HOME}/plugins-dev/`, and Agent dev tools are hidden until the user enables the dev tools setting.
 - Local files returned to users must go through `toolCtx.stageFile({ sessionPath, filePath, label })`, then media details. Do not hand-build local `MEDIA:` or `file://` output.
 - Page and widget contributions require `"trust": "full-access"` and route-backed iframe UI.
 - Declare only the iframe host capabilities actually used.
@@ -131,8 +131,8 @@ python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "Jimeng Pro
 - Source plugins may live in this repository with matching `marketplace.json` entries.
 - Each marketplace entry needs one README source: `readme`, `readmePath`, or `readmeUrl`. Use `readmePath` only for local file marketplaces; use inline `readme` or HTTPS `readmeUrl` for URL marketplaces.
 - Prefer `versions[]` once a plugin has more than one release line. Each version item declares `version`, `compatibility.minAppVersion`, and its own `distribution`.
-- For a single release, root `version`, `compatibility`, and `distribution` remain valid; Hana normalizes them into a single version entry.
-- Hana selects the highest SemVer version compatible with the current app and exposes update, reinstall, incompatible, and downgrade states to the UI.
+- For a single release, root `version`, `compatibility`, and `distribution` remain valid; openZetcX normalizes them into a single version entry.
+- openZetcX selects the highest SemVer version compatible with the current app and exposes update, reinstall, incompatible, and downgrade states to the UI.
 - If the selected compatible version is lower than the installed version, install requires explicit downgrade confirmation with `allowDowngrade: true`.
 - Release installs are backed up before replacement and rolled back when the new plugin fails to load.
 - Local file marketplaces can install `distribution.kind = "source"` entries because paths resolve on disk.
@@ -142,6 +142,6 @@ python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "Jimeng Pro
 ## UI Rules
 
 - Default React plugin UI to `HanaThemeProvider mode="inherit"` so it follows the host theme.
-- Use `mode="hana"` for a named Hana theme, and `mode="custom"` only for explicit token overrides.
+- Use `mode="hana"` for a named openZetcX theme, and `mode="custom"` only for explicit token overrides.
 - Route shells should read `hana-theme` and `hana-css` query params, include the theme CSS link when present, and escape values inserted into HTML attributes.
 - Direct templates may use small no-build host messaging helpers, but should stay compatible with the public iframe protocol.

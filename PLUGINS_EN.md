@@ -42,10 +42,10 @@ Read `.docs/PLUGIN-DEVELOPMENT.md` for the end-to-end workflow. Pick the plugin 
 | UI | Page / widget / iframe card | `full-access` |
 | Marketplace entry | Makes the plugin discoverable in the marketplace | this project's `marketplace.json` |
 
-Start with the `hana-plugin-creator` scaffold, then delete what you do not need:
+Start with the `openZetcX-plugin-creator` scaffold, then delete what you do not need:
 
 ```bash
-python3 skills2set/hana-plugin-creator/scripts/create_hana_plugin.py "My Plugin" --path examples/plugins --kind full
+python3 skills2set/openZetcX-plugin-creator/scripts/create_openzetcx_plugin.py "My Plugin" --path examples/plugins --kind full
 ```
 
 Debug order: install the local folder, inspect Settings diagnostics, finish README/manifest, then add an entry to this project's `marketplace.json` when the plugin is ready to publish.

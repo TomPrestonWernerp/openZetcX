@@ -29,12 +29,12 @@ REACT_TEMPLATES = {"guided-react", "professional-react"}
 
 def slugify(value: str) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-    return slug or "hana-plugin"
+    return slug or "openzetcx-plugin"
 
 
 def titleize(value: str) -> str:
     parts = re.split(r"[\s_-]+", value.strip())
-    return " ".join(part[:1].upper() + part[1:] for part in parts if part) or "Hana Plugin"
+    return " ".join(part[:1].upper() + part[1:] for part in parts if part) or "openZetcX Plugin"
 
 
 def js_string(value: str) -> str:
@@ -45,7 +45,7 @@ def script_root() -> Path:
     return Path(__file__).resolve().parents[1]
 
 
-def find_hana_root(*starts: Path) -> Path | None:
+def find_openzetcx_root(*starts: Path) -> Path | None:
     seen: set[Path] = set()
     for start in starts:
         current = start.resolve()
@@ -97,12 +97,12 @@ def choose_scaffold_template(args: argparse.Namespace) -> str:
     return choose_template(args.template, args.audience)
 
 
-def choose_sdk_mode(sdk_mode: str, hana_root: Path | None, template: str) -> str:
+def choose_sdk_mode(sdk_mode: str, openzetcx_root: Path | None, template: str) -> str:
     if template not in REACT_TEMPLATES:
         return "none"
     if sdk_mode != "auto":
         return sdk_mode
-    if hana_root:
+    if openzetcx_root:
         return "workspace"
     return "bundled"
 
@@ -158,15 +158,15 @@ def prepare_bundled_sdk(plugin_dir: Path, packages: list[str]) -> dict[str, Path
 
 def sdk_dependency(
     plugin_dir: Path,
-    hana_root: Path | None,
+    openzetcx_root: Path | None,
     package_name: str,
     sdk_mode: str,
     bundled: dict[str, Path],
 ) -> str:
     if sdk_mode == "workspace":
-        if not hana_root:
-            raise SystemExit("workspace SDK mode requires running from a Hana repo. Use --sdk-mode bundled.")
-        package_dir = hana_root / "packages" / SDK_PACKAGES[package_name]
+        if not openzetcx_root:
+            raise SystemExit("workspace SDK mode requires running from an openZetcX repo. Use --sdk-mode bundled.")
+        package_dir = openzetcx_root / "packages" / SDK_PACKAGES[package_name]
         if not package_dir.exists():
             raise SystemExit(f"Missing workspace SDK package: {package_dir}")
         return relative_file_spec(plugin_dir, package_dir)
@@ -194,7 +194,7 @@ def manifest_for(
         "id": plugin_id,
         "name": display_name,
         "version": "0.1.0",
-        "description": args.description or f"{display_name} plugin for Hana.",
+        "description": args.description or f"{display_name} plugin for openZetcX.",
         "minAppVersion": args.min_app_version,
     }
     if include_ui or include_lifecycle or include_provider:
@@ -242,7 +242,7 @@ def manifest_for(
 
 def package_json_for(
     plugin_dir: Path,
-    hana_root: Path | None,
+    openzetcx_root: Path | None,
     root_package: dict,
     plugin_id: str,
     include_tool: bool,
@@ -254,7 +254,7 @@ def package_json_for(
 ) -> dict:
     dependencies: dict[str, str] = {}
     for package_name in required_sdk_packages(include_tool, include_ui, include_lifecycle, template):
-        dependencies[package_name] = sdk_dependency(plugin_dir, hana_root, package_name, sdk_mode, bundled_sdk)
+        dependencies[package_name] = sdk_dependency(plugin_dir, openzetcx_root, package_name, sdk_mode, bundled_sdk)
 
     dev_dependencies: dict[str, str] = {}
     scripts: dict[str, str] = {}
@@ -317,7 +317,7 @@ export async function execute(input = {{}}, toolCtx) {{
   const title = typeof input.title === "string" && input.title.trim()
     ? input.title.trim()
     : {js_string(display_name + " Note")};
-  const body = typeof input.body === "string" ? input.body : "Generated from a Hana plugin.";
+  const body = typeof input.body === "string" ? input.body : "Generated from an openZetcX plugin.";
   const safeName = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "note";
   const outputDir = path.join(toolCtx.dataDir, "notes");
   const filePath = path.join(outputDir, `${{safeName}}.md`);
@@ -366,7 +366,7 @@ const tool = defineTool({{
     const title = typeof input.title === "string" && input.title.trim()
       ? input.title.trim()
       : {js_string(display_name + " Note")};
-    const body = typeof input.body === "string" ? input.body : "Generated from a Hana plugin.";
+    const body = typeof input.body === "string" ? input.body : "Generated from an openZetcX plugin.";
     const safeName = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "note";
     const outputDir = path.join(toolCtx.dataDir, "notes");
     const filePath = path.join(outputDir, `${{safeName}}.md`);
@@ -646,7 +646,7 @@ function render() {{
         <header class="card-header">
           <div>
             <h1 id="titleText"></h1>
-            <p>A no-build Hana plugin panel.</p>
+            <p>A no-build openZetcX plugin panel.</p>
           </div>
           <button id="openBtn" class="button ghost" type="button">Open</button>
         </header>
@@ -895,7 +895,7 @@ function Panel() {{
     >
       <CardShell
         title={{title}}
-        description="A Hana plugin panel using the SDK and shared components."
+        description="An openZetcX plugin panel using the SDK and shared components."
         actions={{<Button variant="ghost" onClick={{() => hana.external.open('https://example.com')}}>Open</Button>}}
         footer={{<Button variant="primary" onClick={{copyTitle}}>Copy title</Button>}}
       >
@@ -911,7 +911,7 @@ function Panel() {{
               value={{themeMode}}
               onChange={{(value) => setThemeMode(value as ThemeMode)}}
               options={{[
-                {{ value: 'inherit', label: 'Follow Hana' }},
+                {{ value: 'inherit', label: 'Follow openZetcX' }},
                 {{ value: 'hana', label: 'Warm paper' }},
                 {{ value: 'custom', label: 'Custom' }},
               ]}}
@@ -1028,20 +1028,20 @@ def create_readme(
     lines = [
         f"# {display_name}",
         "",
-        f"Hana plugin id: `{plugin_id}`.",
+        f"openZetcX plugin id: `{plugin_id}`.",
         "",
     ]
     if audience == "beginner" or template == "direct":
         lines.extend([
-            "This is a small Hana plugin starter. Start by changing labels, button actions, and the sample tool.",
+            "This is a small openZetcX plugin starter. Start by changing labels, button actions, and the sample tool.",
             "",
             "## What to edit first",
             "",
-            "- `manifest.json`: the name, description, and permissions Hana sees.",
+            "- `manifest.json`: the name, description, and permissions openZetcX sees.",
         ])
         if include_provider:
             lines.extend([
-                "- `providers/*.js`: the provider declaration Hana discovers.",
+                "- `providers/*.js`: the provider declaration openZetcX discovers.",
                 "- Replace the sample CLI executable with the real command before enabling this provider for users.",
             ])
         if include_tool:
@@ -1066,7 +1066,7 @@ def create_readme(
         if include_ui:
             lines.extend([
                 "- `routes/ui.js`: iframe shell and static asset route.",
-                "- `ui/Panel.tsx`: React iframe UI built with Hana SDK components.",
+                "- `ui/Panel.tsx`: React iframe UI built with openZetcX plugin SDK components.",
                 "- `vite.config.ts`: builds `assets/panel.js` and `assets/panel.css`.",
             ])
 
@@ -1084,10 +1084,10 @@ def create_readme(
 
     lines.extend([
         "",
-        "Install by dragging this folder into Hana Settings > Plugins, or place it under the user plugin directory reported by `/api/plugins/settings`.",
+        "Install by dragging this folder into openZetcX Settings > Plugins, or place it under the user plugin directory reported by `/api/plugins/settings`.",
     ])
     if include_ui:
-        lines.append("This plugin requires full-access because Hana page and widget contributions are route-backed iframe UI.")
+        lines.append("This plugin requires full-access because openZetcX page and widget contributions are route-backed iframe UI.")
     if include_provider:
         lines.extend([
             "This plugin requires full-access because provider contributions can affect model discovery and runtime execution.",
@@ -1114,9 +1114,9 @@ def scaffold(args: argparse.Namespace) -> Path:
         shutil.rmtree(plugin_dir)
     plugin_dir.mkdir(parents=True, exist_ok=True)
 
-    hana_root = find_hana_root(Path.cwd(), parent)
-    root_package = read_package_json(hana_root)
-    sdk_mode = choose_sdk_mode(args.sdk_mode, hana_root, template)
+    openzetcx_root = find_openzetcx_root(Path.cwd(), parent)
+    root_package = read_package_json(openzetcx_root)
+    sdk_mode = choose_sdk_mode(args.sdk_mode, openzetcx_root, template)
     sdk_packages = required_sdk_packages(include_tool, include_ui, include_lifecycle, template)
     bundled_sdk = prepare_bundled_sdk(plugin_dir, sdk_packages) if sdk_mode == "bundled" else {}
 
@@ -1132,7 +1132,7 @@ def scaffold(args: argparse.Namespace) -> Path:
     if template in REACT_TEMPLATES:
         write_json(plugin_dir / "package.json", package_json_for(
             plugin_dir,
-            hana_root,
+            openzetcx_root,
             root_package,
             plugin_id,
             include_tool,
@@ -1176,7 +1176,7 @@ def scaffold(args: argparse.Namespace) -> Path:
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Create a Hana plugin scaffold.")
+    parser = argparse.ArgumentParser(description="Create an openZetcX plugin scaffold.")
     parser.add_argument("name", help="Human-facing plugin name, for example 'Finance Panel'.")
     parser.add_argument("--plugin-id", help="Stable plugin id. Defaults to a slugified name.")
     parser.add_argument("--display-name", help="Display name. Defaults to title-cased name.")
@@ -1193,18 +1193,18 @@ def main() -> int:
 
     plugin_dir = scaffold(args)
     template = choose_scaffold_template(args)
-    print(f"Created Hana plugin scaffold: {plugin_dir}")
+    print(f"Created openZetcX plugin scaffold: {plugin_dir}")
     print(f"Template: {template}")
     print("Next steps:")
     print("  1. Review manifest.json capabilities and trust.")
     if args.kind == "provider":
         print("  2. Edit the provider declaration under providers/ and replace the sample CLI executable.")
-        print("  3. Install or drag the plugin folder into Hana with full-access enabled.")
+        print("  3. Install or drag the plugin folder into openZetcX with full-access enabled.")
     elif template in REACT_TEMPLATES:
         print("  2. Run npm install inside the plugin directory.")
         print("  3. Run npm run build:ui to produce assets/panel.js and assets/panel.css.")
     else:
-        print("  2. Install or drag the plugin folder into Hana; no build step is required.")
+        print("  2. Install or drag the plugin folder into openZetcX; no build step is required.")
     return 0
 
 
