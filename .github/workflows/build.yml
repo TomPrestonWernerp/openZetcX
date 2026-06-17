@@ -14,19 +14,23 @@ jobs:
       matrix:
         include:
           - os: macos-latest
+            runner: macos-latest
             target: dmg
             arch: arm64
           - os: macos-latest
+            runner: macos-latest
             target: dmg
             arch: x64
           - os: windows-latest
+            runner: windows-2022
             target: nsis
             arch: x64
           - os: ubuntu-latest
+            runner: ubuntu-latest
             target: AppImage
             arch: x64
 
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.runner }}
 
     steps:
       - uses: actions/checkout@v4
