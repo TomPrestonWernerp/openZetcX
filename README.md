@@ -49,11 +49,6 @@ openZetcX 是一个更加易用的 AI agent，有记忆，有性格，会主动�
 
 **国际化** — 界面支持中文、英文、日文、韩文、繁体中文 5 种语言。
 
-## 截图
-
-<p align="center">
-  <img src=".github/assets/screenshot-main.jpg" width="100%" alt="openZetcX 主界面">
-</p>
 
 ## 快速开始
 
