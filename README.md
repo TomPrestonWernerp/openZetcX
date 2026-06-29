@@ -1,19 +1,9 @@
-<p align="center">
-  <img src=".github/assets/banner.jpg" width="100%" alt="openZetcX Banner">
-</p>
 
-<p align="center">
-  <img src=".github/assets/openZetcX-280.png" width="80" alt="openZetcX">
-</p>
 
 <h1 align="center">openZetcX</h1>
 
-<p align="center">一个有记忆、有灵魂的私人 AI 助理</p>
+<p align="center">环科 AI agent助手</p>
 
-<p align="center"><a href="README_EN.md">English</a></p>
-
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](https://github.com/TomPrestonWernerp/openZetcX/releases)
 
 ---
 
