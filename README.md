@@ -1,19 +1,9 @@
-<p align="center">
-  <img src=".github/assets/banner.jpg" width="100%" alt="openZetcX Banner">
-</p>
-
-<p align="center">
-  <img src=".github/assets/openZetcX-280.png" width="80" alt="openZetcX">
-</p>
 
 <h1 align="center">openZetcX</h1>
 
 <p align="center">浙江省环境科技股份有限公司 AI Agent助手</p>
 
 <p align="center"><a href="README_EN.md">English</a></p>
-
-[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
-[![Platform](https://img.shields.io/badge/platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey.svg)](https://github.com/TomPrestonWernerp/openZetcX/releases)
 
 ---
 
@@ -59,11 +49,6 @@ openZetcX 是一个更加易用的 AI agent，有记忆，有性格，会主动�
 
 **国际化** — 界面支持中文、英文、日文、韩文、繁体中文 5 种语言。
 
-## 截图
-
-<p align="center">
-  <img src=".github/assets/screenshot-main.jpg" width="100%" alt="openZetcX 主界面">
-</p>
 
 ## 快速开始
 
