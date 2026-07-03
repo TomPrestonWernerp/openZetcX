@@ -37,6 +37,7 @@ describe('sendFloatingSelectionPrompt', () => {
     const sent = await sendFloatingSelectionPrompt('  继续解释  ', {
       text: '原文第一行\n原文第二行',
       sourceTitle: 'note.md',
+      sourceKind: 'preview',
       sourceFilePath: '/notes/note.md',
       lineStart: 3,
       lineEnd: 4,

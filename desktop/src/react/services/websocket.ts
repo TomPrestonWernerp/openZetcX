@@ -7,18 +7,23 @@
 
 
 import { handleServerMessage, applyStreamingStatus } from './ws-message-handler';
-import { requestStreamResume, injectHandlers } from './stream-resume';
+import { requestStreamResume, injectHandlers, injectWebSocketGetter } from './stream-resume';
+import {
+  bindResourceEventForegroundCatchUp,
+  catchUpResourceEventsAfterReconnect,
+  recordResourceEventCursor,
+} from './resource-events';
 import { useStore } from '../stores';
 import { setStatus } from '../utils/ui-helpers';
 import {
   buildConnectionWsUrl,
   createLocalServerConnection,
+  requestConnectionWsTicket,
   resolveServerConnection,
+  type ServerConnection,
 } from './server-connection';
-// @ts-expect-error -- shared JS module, no type declarations
-import { AppError } from '../../../../shared/errors.js';
-// @ts-expect-error -- shared JS module, no type declarations
-import { errorBus } from '../../../../shared/error-bus.js';
+import { AppError } from '../../../../shared/errors.ts';
+import { errorBus } from '../../../../shared/error-bus.ts';
 
 // ── 模块级 WS 实例 ──
 let _ws: WebSocket | null = null;
@@ -28,11 +33,32 @@ let _wsRetryDelay = 1000;
 const WS_RETRY_MAX = 30000;
 let _wsRetryTimer: ReturnType<typeof setTimeout> | null = null;
 let _wsResumeVersion = 0;
-const WS_MAX_RETRIES = 20;
+const WS_FAST_RETRY_LIMIT = 20;
+const WS_SLOW_RETRY_DELAY = 60_000;
 let _wsRetryCount = 0;
+let _resourceForegroundCatchUpCleanup: (() => void) | null = null;
 
 // 注入循环依赖的 handlers
 injectHandlers(handleServerMessage, applyStreamingStatus);
+injectWebSocketGetter(() => _ws);
+
+export function resolveStreamingSessionResumeTargets(state: {
+  streamingSessions?: string[];
+  sessionLocatorsById?: Record<string, { path?: string | null }>;
+}): string[] {
+  const locators = state.sessionLocatorsById || {};
+  const targets = new Set<string>();
+  for (const key of state.streamingSessions || []) {
+    if (!key) continue;
+    if (Object.prototype.hasOwnProperty.call(locators, key)) {
+      const path = locators[key]?.path;
+      if (typeof path === 'string' && path.trim()) targets.add(path);
+      continue;
+    }
+    targets.add(key);
+  }
+  return Array.from(targets);
+}
 
 /** 获取当前 WebSocket 实例 */
 export function getWebSocket(): WebSocket | null {
@@ -51,13 +77,30 @@ export function connectWebSocket(port?: string, token?: string): void {
     : resolveServerConnection(storeState);
 
   if (!connection) return;
+  ensureResourceForegroundCatchUp();
+
+  void openConnectionWebSocket(connection).catch((err) => {
+    console.error('[ws] connection setup failed:', err);
+    errorBus.report(new AppError('WS_DISCONNECTED'));
+    setStatus('status.disconnected', false);
+    scheduleReconnect();
+  });
+}
+
+function ensureResourceForegroundCatchUp(): void {
+  if (_resourceForegroundCatchUpCleanup) return;
+  _resourceForegroundCatchUpCleanup = bindResourceEventForegroundCatchUp((event) => handleServerMessage(event));
+}
+
+async function openConnectionWebSocket(connection: ServerConnection): Promise<void> {
+  const wsTicket = await requestConnectionWsTicket(connection);
 
   if (_wsRetryTimer) { clearTimeout(_wsRetryTimer); _wsRetryTimer = null; }
   if (_ws) {
     try { _ws.onclose = null; _ws.close(); } catch { /* silent */ }
   }
 
-  const url = buildConnectionWsUrl(connection, '/ws');
+  const url = buildConnectionWsUrl(connection, '/ws', { wsTicket });
   _ws = new WebSocket(url);
 
   _ws.onopen = () => {
@@ -67,13 +110,14 @@ export function connectWebSocket(port?: string, token?: string): void {
     useStore.setState({ wsState: 'connected', wsReconnectAttempt: 0, compactingSessions: [] });
 
     const s = useStore.getState();
-    if (s.currentSessionPath && s.streamingSessions.includes(s.currentSessionPath)) {
+    const streamingPaths = resolveStreamingSessionResumeTargets(s);
+    if (streamingPaths.length > 0) {
       const myVersion = ++_wsResumeVersion;
-      const targetPath = s.currentSessionPath;
       Promise.resolve().then(async () => {
         if (myVersion !== _wsResumeVersion) return;
-        if (useStore.getState().currentSessionPath !== targetPath) return;
-        requestStreamResume(targetPath);
+        for (const targetPath of streamingPaths) {
+          requestStreamResume(targetPath);
+        }
       }).catch((err) => {
         console.error('[ws] reconnect resume failed:', err);
       });
@@ -83,13 +127,22 @@ export function connectWebSocket(port?: string, token?: string): void {
     // 期内到达、服务端重启、长时间挂起后唤醒等所有可能造成 context 数据
     // 与后端实际状态偏离的场景。不依赖 _pendingContextRefresh 队列。
     if (s.currentSessionPath && _ws?.readyState === WebSocket.OPEN) {
-      _ws.send(JSON.stringify({ type: 'context_usage', sessionPath: s.currentSessionPath }));
+      _ws.send(JSON.stringify({
+        type: 'context_usage',
+        sessionPath: s.currentSessionPath,
+        ...(s.currentSessionId ? { sessionId: s.currentSessionId } : {}),
+      }));
     }
+
+    void catchUpResourceEventsAfterReconnect((event) => handleServerMessage(event)).catch((err) => {
+      console.warn('[ws] resource event catch-up failed:', err);
+    });
   };
 
   _ws.onmessage = (event: MessageEvent) => {
     try {
       const msg = JSON.parse(event.data);
+      recordResourceEventCursor(msg);
       handleServerMessage(msg);
     } catch (err) {
       console.error('[ws] message parse error:', err);
@@ -98,20 +151,26 @@ export function connectWebSocket(port?: string, token?: string): void {
 
   _ws.onclose = () => {
     setStatus('status.disconnected', false);
-    _wsRetryCount++;
-
-    if (_wsRetryCount <= WS_MAX_RETRIES) {
-      useStore.setState({ wsState: 'reconnecting', wsReconnectAttempt: _wsRetryCount });
-      _wsRetryTimer = setTimeout(() => connectWebSocket(), _wsRetryDelay);
-      _wsRetryDelay = Math.min(_wsRetryDelay * 2, WS_RETRY_MAX);
-    } else {
-      useStore.setState({ wsState: 'disconnected' });
-    }
+    scheduleReconnect();
   };
 
   _ws.onerror = () => {
     errorBus.report(new AppError('WS_DISCONNECTED'));
   };
+}
+
+function scheduleReconnect(): void {
+  if (_wsRetryTimer) return;
+  _wsRetryCount++;
+
+  useStore.setState({ wsState: 'reconnecting', wsReconnectAttempt: _wsRetryCount });
+  if (_wsRetryCount <= WS_FAST_RETRY_LIMIT) {
+    _wsRetryTimer = setTimeout(() => connectWebSocket(), _wsRetryDelay);
+    _wsRetryDelay = Math.min(_wsRetryDelay * 2, WS_RETRY_MAX);
+  } else {
+    _wsRetryTimer = setTimeout(() => connectWebSocket(), WS_SLOW_RETRY_DELAY);
+  }
+  (_wsRetryTimer as unknown as { unref?: () => void })?.unref?.();
 }
 
 /** 手动重连（由 StatusBar 重连按钮调用），重置重试计数 */

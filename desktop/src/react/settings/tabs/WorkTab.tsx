@@ -1,49 +1,134 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useShallow } from 'zustand/react/shallow';
+import { SelectWidget, type SelectOption } from '@/ui';
 import { useSettingsStore } from '../store';
 import { t, autoSaveConfig } from '../helpers';
 import { hanaFetch } from '../api';
 import { Toggle } from '../widgets/Toggle';
 import { AgentSelect } from './bridge/AgentSelect';
+import { BridgePermissionModeSelect, type BridgePermissionMode } from './bridge/BridgeWidgets';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
 import { NumberInput } from '../components/NumberInput';
+import { readConfigBoolean } from '../resource-state';
+import { useStore } from '../../stores';
 import styles from '../Settings.module.css';
-import { DEFAULT_HEARTBEAT_INTERVAL_MINUTES } from '../../../../../shared/default-workspace-constants.js';
+import { DEFAULT_HEARTBEAT_INTERVAL_MINUTES } from '../../../../../shared/default-workspace-constants.ts';
+import type { Channel } from '../../types';
 
 type AgentDeskConfig = {
   home_folder: string;
   heartbeat_enabled: boolean;
   heartbeat_interval: number;
+  workspace_context: {
+    inject_agents_md: boolean;
+    inject_claude_md: boolean;
+  };
 };
 
+function normalizeAutomationPermissionMode(value: unknown): BridgePermissionMode {
+  return value === 'operate' || value === 'read_only' ? value : 'auto';
+}
+
+function normalizeChannelWorkspaceMap(value: unknown): Record<string, Record<string, any>> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, Record<string, any>>
+    : {};
+}
+
+function deskFromConfig(data: Record<string, any>): AgentDeskConfig {
+  return {
+    home_folder: data.desk?.home_folder || '',
+    heartbeat_enabled: data.desk?.heartbeat_enabled === true,
+    heartbeat_interval: data.desk?.heartbeat_interval ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
+    workspace_context: {
+      inject_agents_md: data.workspace_context?.inject_agents_md === true,
+      inject_claude_md: data.workspace_context?.inject_claude_md === true,
+    },
+  };
+}
+
+function agentDeskFromStoreForAgent(agentId: string | null): AgentDeskConfig | null {
+  if (!agentId) return null;
+  const state = useSettingsStore.getState();
+  const configOwnerId = state.settingsSnapshot?.data?.agentId
+    || state.settingsAgentId
+    || (state.settingsConfigStatus === 'ready' ? state.currentAgentId : null);
+  if (!state.settingsConfig || configOwnerId !== agentId) return null;
+  return deskFromConfig(state.settingsConfig);
+}
+
 export function WorkTab() {
-  const { settingsConfig, currentAgentId } = useSettingsStore(
-    useShallow(s => ({ settingsConfig: s.settingsConfig, currentAgentId: s.currentAgentId }))
+  const { settingsConfig, settingsConfigStatus, currentAgentId, settingsAgentId, settingsSnapshotAgentId } = useSettingsStore(
+    useShallow(s => ({
+      settingsConfig: s.settingsConfig,
+      settingsConfigStatus: s.settingsConfigStatus,
+      currentAgentId: s.currentAgentId,
+      settingsAgentId: s.settingsAgentId,
+      settingsSnapshotAgentId: s.settingsSnapshot?.data?.agentId || null,
+    }))
   );
   const showToast = useSettingsStore(s => s.showToast);
+  const channelGroups = useStore(useShallow(s => (s.channels || []).filter((channel: Channel) => !channel.isDM)));
 
   // ── Global toggles：直接从 store 派生，单一数据源，避免挂载时 flicker ──
-  const heartbeatMaster = settingsConfig?.desk?.heartbeat_master !== false;
-  const cronAutoApprove = settingsConfig?.desk?.cron_auto_approve !== false;
+  const heartbeatMaster = readConfigBoolean(settingsConfig, cfg => cfg.desk?.heartbeat_master, true);
+  const automationPermissionMode = settingsConfig
+    ? normalizeAutomationPermissionMode(settingsConfig.automation?.permissionMode)
+    : undefined;
+  const channelWorkspacePermissionMode = settingsConfig
+    ? normalizeAutomationPermissionMode(settingsConfig.channel?.workspace_permission_mode)
+    : undefined;
+  const channelWorkspaceMap = normalizeChannelWorkspaceMap(settingsConfig?.channel?.workspaces);
 
   // ── Agent selector (作为 section context，表达"当前配置哪个 agent") ──
-  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(currentAgentId);
+  const initialAgentId = settingsAgentId || currentAgentId;
+  const [selectedAgentId, setSelectedAgentId] = useState<string | null>(initialAgentId);
   const selectedAgentIdRef = useRef(selectedAgentId);
   selectedAgentIdRef.current = selectedAgentId;
+  const [selectedChannelId, setSelectedChannelId] = useState<string | null>(() => {
+    const currentChannel = useStore.getState().currentChannel;
+    const currentGroup = (useStore.getState().channels || []).find((channel: Channel) => channel.id === currentChannel && !channel.isDM);
+    return currentGroup?.id || (useStore.getState().channels || []).find((channel: Channel) => !channel.isDM)?.id || null;
+  });
+  const selectedChannel = channelGroups.find((channel: Channel) => channel.id === selectedChannelId) || null;
+  const selectedChannelWorkspace = selectedChannelId ? channelWorkspaceMap[selectedChannelId] || {} : {};
+  const configuredSelectedChannelWorkspaceRoot = typeof selectedChannelWorkspace.workspace_root === 'string'
+    ? selectedChannelWorkspace.workspace_root
+    : '';
+  const selectedChannelWorkspaceRoot = configuredSelectedChannelWorkspaceRoot
+    || (typeof selectedChannel?.workspaceRoot === 'string' ? selectedChannel.workspaceRoot : '');
+  const selectedChannelWorkspacePermissionMode = settingsConfig
+    ? normalizeAutomationPermissionMode(selectedChannelWorkspace.permission_mode ?? settingsConfig.channel?.workspace_permission_mode)
+    : undefined;
 
   useEffect(() => {
     if (selectedAgentId) return;
-    if (currentAgentId) setSelectedAgentId(currentAgentId);
-  }, [currentAgentId]);
+    const agentId = settingsAgentId || currentAgentId;
+    if (agentId) setSelectedAgentId(agentId);
+  }, [currentAgentId, selectedAgentId, settingsAgentId]);
+
+  useEffect(() => {
+    if (selectedChannelId && channelGroups.some((channel: Channel) => channel.id === selectedChannelId)) return;
+    setSelectedChannelId(channelGroups[0]?.id || null);
+  }, [channelGroups, selectedChannelId]);
 
   // ── Per-agent 远程快照：null = 未加载。切 agent 时重置，避免残留上一个 agent 的值 ──
-  const [agentDesk, setAgentDesk] = useState<AgentDeskConfig | null>(null);
+  const [agentDesk, setAgentDesk] = useState<AgentDeskConfig | null>(() => agentDeskFromStoreForAgent(initialAgentId));
   // hbInterval 是 draft：用户编辑后点"保存"才落盘，必须独立于 agentDesk
-  const [hbIntervalDraft, setHbIntervalDraft] = useState<number | null>(null);
+  const [hbIntervalDraft, setHbIntervalDraft] = useState<number | null>(() => agentDeskFromStoreForAgent(initialAgentId)?.heartbeat_interval ?? null);
 
   useEffect(() => {
     if (!selectedAgentId) return;
+    const configOwnerId = settingsSnapshotAgentId
+      || settingsAgentId
+      || (settingsConfigStatus === 'ready' ? currentAgentId : null);
+    if (settingsConfig && configOwnerId === selectedAgentId) {
+      const desk = deskFromConfig(settingsConfig);
+      setAgentDesk(desk);
+      setHbIntervalDraft(desk.heartbeat_interval);
+      return;
+    }
     setAgentDesk(null);
     setHbIntervalDraft(null);
     const ac = new AbortController();
@@ -51,11 +136,7 @@ export function WorkTab() {
       .then(r => r.json())
       .then(data => {
         if (ac.signal.aborted) return;
-        const desk: AgentDeskConfig = {
-          home_folder: data.desk?.home_folder || '',
-          heartbeat_enabled: data.desk?.heartbeat_enabled === true,
-          heartbeat_interval: data.desk?.heartbeat_interval ?? DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
-        };
+        const desk = deskFromConfig(data);
         setAgentDesk(desk);
         setHbIntervalDraft(desk.heartbeat_interval);
       })
@@ -63,14 +144,70 @@ export function WorkTab() {
         if (err?.name !== 'AbortError') console.warn('[work] fetch agent config failed:', err);
       });
     return () => ac.abort();
-  }, [selectedAgentId]);
+  }, [currentAgentId, selectedAgentId, settingsAgentId, settingsConfig, settingsConfigStatus, settingsSnapshotAgentId]);
 
   const toggleHeartbeatMaster = async (on: boolean) => {
     await autoSaveConfig({ desk: { heartbeat_master: on } });
   };
 
-  const toggleCronAutoApprove = async (on: boolean) => {
-    await autoSaveConfig({ desk: { cron_auto_approve: on } });
+  const saveAutomationPermissionMode = async (mode: BridgePermissionMode) => {
+    await autoSaveConfig({ automation: { permissionMode: mode } });
+  };
+
+  const saveSelectedChannelWorkspacePatch = async (patch: Record<string, unknown>) => {
+    if (!selectedChannelId) return false;
+    const previous = channelWorkspaceMap[selectedChannelId] || {};
+    const nextWorkspace = {
+      ...previous,
+      ...patch,
+    };
+    const nextWorkspaces = {
+      ...channelWorkspaceMap,
+      [selectedChannelId]: nextWorkspace,
+    };
+    const saved = await autoSaveConfig({ channel: { workspaces: nextWorkspaces } });
+    if (saved) {
+      useStore.setState((state: any) => ({
+        channels: (state.channels || []).map((channel: Channel) =>
+          channel.id === selectedChannelId
+            ? {
+                ...channel,
+                workspaceRoot: typeof nextWorkspace.workspace_root === 'string' && nextWorkspace.workspace_root.trim()
+                  ? nextWorkspace.workspace_root.trim()
+                  : null,
+              }
+            : channel,
+        ),
+        channelWorkspaceById: {
+          ...(state.channelWorkspaceById || {}),
+          [selectedChannelId]: {
+            workspaceRoot: typeof nextWorkspace.workspace_root === 'string' && nextWorkspace.workspace_root.trim()
+              ? nextWorkspace.workspace_root.trim()
+              : undefined,
+            permissionMode: normalizeAutomationPermissionMode(nextWorkspace.permission_mode),
+          },
+        },
+      }));
+    }
+    return saved;
+  };
+
+  const saveChannelWorkspaceRoot = async (folder: string) => {
+    await saveSelectedChannelWorkspacePatch({ workspace_root: folder });
+  };
+
+  const pickChannelWorkspaceRoot = async () => {
+    const folder = await window.platform?.selectFolder?.();
+    if (!folder) return;
+    await saveChannelWorkspaceRoot(folder);
+  };
+
+  const clearChannelWorkspaceRoot = async () => {
+    await saveChannelWorkspaceRoot('');
+  };
+
+  const saveChannelWorkspacePermissionMode = async (mode: BridgePermissionMode) => {
+    await saveSelectedChannelWorkspacePatch({ permission_mode: mode });
   };
 
   const saveAgentConfig = async (agentId: string, patch: Record<string, any>): Promise<boolean> => {
@@ -100,6 +237,27 @@ export function WorkTab() {
     const previous = agentDesk;
     setAgentDesk({ ...agentDesk, heartbeat_enabled: on });
     const saved = await saveAgentConfig(agentId, { desk: { heartbeat_enabled: on } });
+    if (!saved && selectedAgentIdRef.current === agentId) {
+      setAgentDesk(previous);
+    }
+  };
+
+  const toggleWorkspaceContext = async (
+    key: keyof AgentDeskConfig['workspace_context'],
+    on: boolean,
+  ) => {
+    if (!agentDesk) return;
+    const agentId = selectedAgentIdRef.current;
+    if (!agentId) return;
+    const previous = agentDesk;
+    setAgentDesk({
+      ...agentDesk,
+      workspace_context: {
+        ...agentDesk.workspace_context,
+        [key]: on,
+      },
+    });
+    const saved = await saveAgentConfig(agentId, { workspace_context: { [key]: on } });
     if (!saved && selectedAgentIdRef.current === agentId) {
       setAgentDesk(previous);
     }
@@ -159,21 +317,88 @@ export function WorkTab() {
           control={<Toggle on={heartbeatMaster} onChange={toggleHeartbeatMaster} />}
         />
         <SettingsRow
-          label={t('settings.work.cronAutoApprove')}
-          hint={t('settings.work.cronAutoApproveDesc')}
-          control={<Toggle on={cronAutoApprove} onChange={toggleCronAutoApprove} />}
+          label={t('settings.work.automationPermissionMode')}
+          hint={t('settings.work.automationPermissionModeDesc')}
+          control={
+            <BridgePermissionModeSelect
+              value={automationPermissionMode}
+              onChange={saveAutomationPermissionMode}
+            />
+          }
         />
       </SettingsSection>
 
+      {settingsConfig && (
+        <SettingsSection
+          title={t('settings.work.channelWorkspaceTitle')}
+          description={t('settings.work.channelWorkspaceDesc')}
+          context={
+            <ChannelGroupSelect
+              groups={channelGroups}
+              value={selectedChannelId}
+              onChange={setSelectedChannelId}
+            />
+          }
+        >
+          <SettingsRow
+            label={t('settings.work.channelWorkspaceRoot')}
+            hint={t('settings.work.channelWorkspaceRootDesc')}
+            layout="stacked"
+            control={
+              <div className={styles['settings-folder-picker']}>
+                <input
+                  type="text"
+                  className={`${styles['settings-input']} ${styles['settings-folder-input']}`}
+                  readOnly
+                  value={selectedChannelWorkspaceRoot}
+                  placeholder={t('settings.work.channelWorkspaceRootPlaceholder')}
+                  disabled={!selectedChannel}
+                  onClick={pickChannelWorkspaceRoot}
+                />
+                <button className={styles['settings-folder-browse']} onClick={pickChannelWorkspaceRoot} disabled={!selectedChannel}>
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                  </svg>
+                </button>
+                {selectedChannelWorkspaceRoot && (
+                  <button
+                    className={styles['settings-folder-clear']}
+                    onClick={clearChannelWorkspaceRoot}
+                    title={t('settings.work.channelWorkspaceRootClear')}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <line x1="18" y1="6" x2="6" y2="18" />
+                      <line x1="6" y1="6" x2="18" y2="18" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            }
+          />
+          <SettingsRow
+            label={t('settings.work.channelWorkspacePermissionMode')}
+            hint={t('settings.work.channelWorkspacePermissionModeDesc')}
+            control={
+              <BridgePermissionModeSelect
+                value={selectedChannel ? selectedChannelWorkspacePermissionMode : channelWorkspacePermissionMode}
+                disabled={!selectedChannel}
+                onChange={saveChannelWorkspacePermissionMode}
+              />
+            }
+          />
+        </SettingsSection>
+      )}
+
       {/* ── Per-agent section（AgentSelect 作为 context，section 内所有配置针对该 agent） ── */}
       <SettingsSection
-        title="Agent 工作书桌设置"
+        title="Agent 工作台设置"
         context={<AgentSelect value={selectedAgentId} onChange={setSelectedAgentId} />}
       >
         {agentDesk && (
           <>
             <SettingsRow
               label={t('settings.work.heartbeatEnabled')}
+              hint={t('settings.work.heartbeatOperationalNotice')}
               control={<Toggle on={agentDesk.heartbeat_enabled} onChange={togglePerAgentHeartbeat} />}
             />
             <SettingsRow
@@ -231,6 +456,76 @@ export function WorkTab() {
           </>
         )}
       </SettingsSection>
+
+      <SettingsSection
+        title={t('settings.work.contextFilesTitle')}
+        description={t('settings.work.contextFilesDesc')}
+        context={<AgentSelect value={selectedAgentId} onChange={setSelectedAgentId} />}
+      >
+        {agentDesk && (
+          <>
+            <SettingsRow
+              label={t('settings.work.injectAgentsMd')}
+              hint={t('settings.work.injectAgentsMdDesc')}
+              control={
+                <Toggle
+                  on={agentDesk.workspace_context.inject_agents_md}
+                  onChange={(on) => toggleWorkspaceContext('inject_agents_md', on)}
+                  ariaLabel={t('settings.work.injectAgentsMd')}
+                />
+              }
+            />
+            <SettingsRow
+              label={t('settings.work.injectClaudeMd')}
+              hint={t('settings.work.injectClaudeMdDesc')}
+              control={
+                <Toggle
+                  on={agentDesk.workspace_context.inject_claude_md}
+                  onChange={(on) => toggleWorkspaceContext('inject_claude_md', on)}
+                  ariaLabel={t('settings.work.injectClaudeMd')}
+                />
+              }
+            />
+          </>
+        )}
+      </SettingsSection>
+    </div>
+  );
+}
+
+function ChannelGroupSelect({
+  groups,
+  value,
+  onChange,
+}: {
+  groups: Channel[];
+  value: string | null;
+  onChange: (channelId: string) => void;
+}) {
+  const options: SelectOption[] = groups.map((channel: Channel) => ({
+    value: channel.id,
+    label: channel.name || channel.id,
+  }));
+
+  const renderTrigger = (option: SelectOption | undefined, isOpen: boolean) => (
+    <>
+      <span className={styles['bridge-agent-name']}>{option?.label || t('settings.work.channelWorkspaceGroupPlaceholder')}</span>
+      <svg className={`${styles['bridge-agent-arrow']}${isOpen ? ` ${styles['open']}` : ''}`} viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M4 6l4 4 4-4" />
+      </svg>
+    </>
+  );
+
+  return (
+    <div className={styles['bridge-agent-select']}>
+      <SelectWidget
+        options={options}
+        value={value || ''}
+        onChange={onChange}
+        disabled={options.length === 0}
+        placeholder={t('settings.work.channelWorkspaceGroupPlaceholder')}
+        renderTrigger={renderTrigger}
+      />
     </div>
   );
 }

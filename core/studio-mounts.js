@@ -10,8 +10,8 @@ const PRESENTATIONS = ["folder", "external_panel", "linked_studio"];
 const STATUSES = ["active", "disabled"];
 const CAPABILITIES = ["list", "read", "write", "watch", "materialize", "execute"];
 
-export function ensureStudioMountRegistry(hanakoHome, { now = new Date().toISOString() } = {}) {
-  const filePath = path.join(hanakoHome, STUDIO_MOUNTS_FILE);
+export function ensureStudioMountRegistry(openZetcXHome, { now = new Date().toISOString() } = {}) {
+  const filePath = path.join(openZetcXHome, STUDIO_MOUNTS_FILE);
   const current = readJsonIfPresent(filePath, STUDIO_MOUNTS_FILE);
   if (current) {
     validateStudioMountRegistry(current);
@@ -26,15 +26,15 @@ export function ensureStudioMountRegistry(hanakoHome, { now = new Date().toISOSt
   return { created: [STUDIO_MOUNTS_FILE] };
 }
 
-export function loadStudioMountRegistry(hanakoHome) {
-  ensureStudioMountRegistry(hanakoHome);
-  const registry = readJsonRequired(path.join(hanakoHome, STUDIO_MOUNTS_FILE), STUDIO_MOUNTS_FILE);
+export function loadStudioMountRegistry(openZetcXHome) {
+  ensureStudioMountRegistry(openZetcXHome);
+  const registry = readJsonRequired(path.join(openZetcXHome, STUDIO_MOUNTS_FILE), STUDIO_MOUNTS_FILE);
   validateStudioMountRegistry(registry);
   return registry;
 }
 
-export function upsertStudioMount(hanakoHome, mount, { now = new Date().toISOString() } = {}) {
-  const registry = loadStudioMountRegistry(hanakoHome);
+export function upsertStudioMount(openZetcXHome, mount, { now = new Date().toISOString() } = {}) {
+  const registry = loadStudioMountRegistry(openZetcXHome);
   const normalized = validateStudioMount({
     ...mount,
     schemaVersion: SCHEMA_VERSION,
@@ -54,13 +54,13 @@ export function upsertStudioMount(hanakoHome, mount, { now = new Date().toISOStr
   }
   registry.updatedAt = now;
   validateStudioMountRegistry(registry);
-  writeJsonAtomic(path.join(hanakoHome, STUDIO_MOUNTS_FILE), registry);
+  writeJsonAtomic(path.join(openZetcXHome, STUDIO_MOUNTS_FILE), registry);
   return clonePlain(existingIndex >= 0 ? registry.mounts[existingIndex] : normalized);
 }
 
-export function listStudioMountsForStudio(hanakoHome, hostStudioId) {
+export function listStudioMountsForStudio(openZetcXHome, hostStudioId) {
   if (!isNonEmptyString(hostStudioId)) throw new Error("hostStudioId required");
-  const registry = loadStudioMountRegistry(hanakoHome);
+  const registry = loadStudioMountRegistry(openZetcXHome);
   return registry.mounts
     .filter((mount) => mount.hostStudioId === hostStudioId)
     .map(clonePlain);

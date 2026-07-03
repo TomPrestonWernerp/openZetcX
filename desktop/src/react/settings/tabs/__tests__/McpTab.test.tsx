@@ -56,19 +56,38 @@ afterEach(() => {
 });
 
 describe('McpTab', () => {
+  it('does not show an empty connector list while MCP state is still loading', async () => {
+    let resolveState: (value: ReturnType<typeof state>) => void = () => {};
+    apiMocks.loadMcpState.mockImplementation(() => new Promise(resolve => {
+      resolveState = resolve;
+    }));
+    useSettingsStore.setState({
+      currentAgentId: 'hanako',
+      agents: [{ id: 'hanako', name: 'Hanako', yuan: 'hanako', isPrimary: true }],
+    });
+
+    render(<McpTab />);
+
+    expect(screen.queryByText('settings.mcp.noConnectors')).toBeNull();
+    expect(screen.getAllByText('status.loading').length).toBeGreaterThan(0);
+
+    resolveState(state(false));
+    await waitFor(() => expect(screen.getAllByText('settings.mcp.noConnectors').length).toBeGreaterThan(0));
+  });
+
   it('toggles the global connector switch when the master row text is clicked', async () => {
     apiMocks.loadMcpState
       .mockResolvedValueOnce(state(false))
       .mockResolvedValueOnce(state(true));
     apiMocks.setMcpEnabled.mockResolvedValue(undefined);
     useSettingsStore.setState({
-      currentAgentId: 'openZetcX',
-      agents: [{ id: 'openZetcX', name: 'openZetcX', yuan: 'openZetcX', isPrimary: true }],
+      currentAgentId: 'hanako',
+      agents: [{ id: 'hanako', name: 'Hanako', yuan: 'hanako', isPrimary: true }],
     });
 
     render(<McpTab />);
 
-    await waitFor(() => expect(apiMocks.loadMcpState).toHaveBeenCalledWith('openZetcX'));
+    await waitFor(() => expect(apiMocks.loadMcpState).toHaveBeenCalledWith('hanako'));
     fireEvent.click(screen.getByText('settings.mcp.masterName'));
 
     await waitFor(() => expect(apiMocks.setMcpEnabled).toHaveBeenCalledWith(true));
@@ -80,13 +99,13 @@ describe('McpTab', () => {
       .mockResolvedValueOnce(state(true));
     apiMocks.setMcpEnabled.mockResolvedValue(undefined);
     useSettingsStore.setState({
-      currentAgentId: 'openZetcX',
-      agents: [{ id: 'openZetcX', name: 'openZetcX', yuan: 'openZetcX', isPrimary: true }],
+      currentAgentId: 'hanako',
+      agents: [{ id: 'hanako', name: 'Hanako', yuan: 'hanako', isPrimary: true }],
     });
 
     render(<McpTab />);
 
-    await waitFor(() => expect(apiMocks.loadMcpState).toHaveBeenCalledWith('openZetcX'));
+    await waitFor(() => expect(apiMocks.loadMcpState).toHaveBeenCalledWith('hanako'));
     fireEvent.click(screen.getByRole('switch', { name: 'common.off' }));
 
     await waitFor(() => expect(apiMocks.setMcpEnabled).toHaveBeenCalledTimes(1));

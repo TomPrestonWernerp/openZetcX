@@ -10,8 +10,8 @@ const SCHEMA_VERSION = 1;
 const SECRET_PREFIX_LENGTH = 18;
 const DEFAULT_TTL_MS = 14 * 24 * 60 * 60 * 1000;
 
-export function ensureWebSessionRegistry(hanakoHome, { now = new Date().toISOString() } = {}) {
-  const filePath = path.join(hanakoHome, WEB_SESSIONS_FILE);
+export function ensureWebSessionRegistry(openZetcXHome, { now = new Date().toISOString() } = {}) {
+  const filePath = path.join(openZetcXHome, WEB_SESSIONS_FILE);
   const existing = readJsonIfPresent(filePath, WEB_SESSIONS_FILE);
   if (existing) {
     validateWebSessionRegistry(existing, WEB_SESSIONS_FILE);
@@ -21,14 +21,14 @@ export function ensureWebSessionRegistry(hanakoHome, { now = new Date().toISOStr
   return { created: [WEB_SESSIONS_FILE] };
 }
 
-export function loadWebSessionRegistry(hanakoHome) {
-  ensureWebSessionRegistry(hanakoHome);
-  const registry = readJsonRequired(path.join(hanakoHome, WEB_SESSIONS_FILE), WEB_SESSIONS_FILE);
+export function loadWebSessionRegistry(openZetcXHome) {
+  ensureWebSessionRegistry(openZetcXHome);
+  const registry = readJsonRequired(path.join(openZetcXHome, WEB_SESSIONS_FILE), WEB_SESSIONS_FILE);
   return validateWebSessionRegistry(registry, WEB_SESSIONS_FILE);
 }
 
-export function createWebSession(hanakoHome, input = {}) {
-  assertNonEmptyString(hanakoHome, "hanakoHome");
+export function createWebSession(openZetcXHome, input = {}) {
+  assertNonEmptyString(openZetcXHome, "openZetcXHome");
   if (!isPlainObject(input.principal)) throw new Error("principal required");
 
   const now = input.now || new Date().toISOString();
@@ -50,10 +50,10 @@ export function createWebSession(hanakoHome, input = {}) {
     expiresAt: new Date(Date.parse(now) + ttlMs).toISOString(),
   };
 
-  const registry = loadWebSessionRegistry(hanakoHome);
+  const registry = loadWebSessionRegistry(openZetcXHome);
   registry.sessions.push(session);
   registry.updatedAt = now;
-  persistWebSessionRegistry(hanakoHome, registry);
+  persistWebSessionRegistry(openZetcXHome, registry);
   return {
     session: sanitizeSession(session),
     secret,
@@ -62,10 +62,10 @@ export function createWebSession(hanakoHome, input = {}) {
   };
 }
 
-export function authenticateWebSession(hanakoHome, cookieHeader, { now = new Date().toISOString() } = {}) {
+export function authenticateWebSession(openZetcXHome, cookieHeader, { now = new Date().toISOString() } = {}) {
   const secret = parseCookie(cookieHeader, WEB_SESSION_COOKIE_NAME);
   if (!isNonEmptyString(secret)) return null;
-  const registry = loadWebSessionRegistry(hanakoHome);
+  const registry = loadWebSessionRegistry(openZetcXHome);
   const session = registry.sessions.find((item) => (
     item.status === "active"
     && isNonEmptyString(item.secretPrefix)
@@ -77,21 +77,21 @@ export function authenticateWebSession(hanakoHome, cookieHeader, { now = new Dat
     session.status = "expired";
     session.updatedAt = now;
     registry.updatedAt = now;
-    persistWebSessionRegistry(hanakoHome, registry);
+    persistWebSessionRegistry(openZetcXHome, registry);
     return null;
   }
 
   session.lastUsedAt = now;
   session.updatedAt = now;
   registry.updatedAt = now;
-  persistWebSessionRegistry(hanakoHome, registry);
+  persistWebSessionRegistry(openZetcXHome, registry);
   return deepFreeze(clonePlain(session.principal));
 }
 
-export function revokeWebSession(hanakoHome, cookieHeader, { now = new Date().toISOString() } = {}) {
+export function revokeWebSession(openZetcXHome, cookieHeader, { now = new Date().toISOString() } = {}) {
   const secret = parseCookie(cookieHeader, WEB_SESSION_COOKIE_NAME);
   if (!isNonEmptyString(secret)) return false;
-  const registry = loadWebSessionRegistry(hanakoHome);
+  const registry = loadWebSessionRegistry(openZetcXHome);
   const session = registry.sessions.find((item) => (
     item.status === "active"
     && isNonEmptyString(item.secretPrefix)
@@ -103,7 +103,7 @@ export function revokeWebSession(hanakoHome, cookieHeader, { now = new Date().to
   session.updatedAt = now;
   session.revokedAt = now;
   registry.updatedAt = now;
-  persistWebSessionRegistry(hanakoHome, registry);
+  persistWebSessionRegistry(openZetcXHome, registry);
   return true;
 }
 
@@ -124,9 +124,9 @@ export function parseCookie(cookieHeader, name) {
   return null;
 }
 
-function persistWebSessionRegistry(hanakoHome, registry) {
+function persistWebSessionRegistry(openZetcXHome, registry) {
   validateWebSessionRegistry(registry, WEB_SESSIONS_FILE);
-  writeJsonAtomic(path.join(hanakoHome, WEB_SESSIONS_FILE), registry);
+  writeJsonAtomic(path.join(openZetcXHome, WEB_SESSIONS_FILE), registry);
 }
 
 function validateWebSessionRegistry(value, label) {

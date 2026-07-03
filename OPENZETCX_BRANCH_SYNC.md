@@ -91,7 +91,7 @@ git merge upstream/<branch-name>
 4. 合并后搜索回退痕迹：
 
 ```powershell
-rg -n "liliMozi|Hanako|Hana|Project Hana|github.com/liliMozi|channel\\.betaTitle|channel\\.betaMessage" .
+rg -n "TomPrestonWernerp|Hanako|Hana|Project Hana|github.com/TomPrestonWernerp|channel\\.betaTitle|channel\\.betaMessage" .
 ```
 
 5. 检查 openZetcX 仓库地址：

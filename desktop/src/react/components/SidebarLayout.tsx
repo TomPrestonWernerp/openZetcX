@@ -10,9 +10,7 @@ import { useEffect, useRef } from 'react';
 import { useStore } from '../stores';
 import { createNewSession } from '../stores/session-actions';
 import { closePreview } from '../stores/preview-actions';
-
-const CHAT_MIN_WIDTH = 400;
-
+import { CHAT_MIN_WIDTH } from '../layout-constants';
 
 function getSidebarWidth(): number {
   return parseInt(getComputedStyle(document.documentElement).getPropertyValue('--sidebar-width')) || 240;
@@ -37,7 +35,7 @@ export function updateLayout(): void {
   const w = window.innerWidth;
   const leftW = s.sidebarOpen ? getSidebarWidth() : 0;
   const rightW = s.jianOpen ? getJianWidth() : 0;
-  const previewW = currentTab === 'chat' && s.previewOpen ? getPreviewWidth() : 0;
+  const previewW = (currentTab === 'chat' || currentTab === 'channels') && s.previewOpen ? getPreviewWidth() : 0;
   const channelInspectorW = currentTab === 'channels' && s.currentChannel ? getChannelInspectorWidth() : 0;
   const contentW = w - leftW - rightW - previewW - channelInspectorW;
 

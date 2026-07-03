@@ -6,12 +6,12 @@
 
 ### 前置条件
 
-- Node.js >= 20
-- npm >= 10
+- Node.js >= 24.12 (see package.json engines)
+- npm (latest compatible with your Node.js version)
 - C/C++ 编译工具链（编译 `better-sqlite3` native module 需要）：
   - **macOS**：`xcode-select --install`（安装 Command Line Tools）
   - **Linux**：`sudo apt install build-essential python3`（Debian/Ubuntu）
-  - **Windows**：`npm install -g windows-build-tools` 或安装 Visual Studio Build Tools
+  - **Windows**：安装 [Visual Studio Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)（选择 "Desktop development with C++" 工作负载）
 
 ### 本地运行
 
@@ -62,7 +62,7 @@ Server 以独立 Node.js 进程运行（`spawn`，非 `fork`），不在 Electro
 core/           # Engine 编排层 + Manager
 lib/            # 核心库（bridge、sandbox、memory、tools、providers）
 server/         # Hono HTTP + WebSocket 服务
-hub/            # 后台任务（调度器、集群路由、Agent 通信、DM 路由）
+hub/            # 后台任务（调度器、频道路由、Agent 通信、DM 路由）
 desktop/        # Electron 应用 + React 前端
 shared/         # 跨层共享工具（config schema、error bus、模型引用等）
 plugins/        # 内置系统插件（随应用打包）

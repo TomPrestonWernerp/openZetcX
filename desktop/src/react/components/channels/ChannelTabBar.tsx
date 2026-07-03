@@ -6,20 +6,19 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { createPortal } from 'react-dom';
 import { useStore } from '../../stores';
 import type { TabType, PluginPageInfo } from '../../types';
 import { toggleSidebar } from '../SidebarLayout';
 import { resolvePluginTitle } from '../../utils/resolve-plugin-title';
 import { reorderTabs, hidePluginTab, showPluginTab } from '../../stores/plugin-ui-actions';
+import { hydrateCurrentChannelIfNeeded } from '../../stores/channel-actions';
 import { PluginTabOverflow } from '../plugin/PluginTabOverflow';
-import { ContextMenu, Overlay, type ContextMenuItem } from '../../ui';
+import { ContextMenu, type ContextMenuItem } from '../../ui';
 import styles from './Channels.module.css';
 
 declare function t(key: string, vars?: Record<string, string | number>): string;
 
 const MAX_VISIBLE_DRAGGABLE = 5;
-const CHANNELS_BETA_DISABLED = true;
 
 // ── Tab switching logic ──
 
@@ -27,17 +26,15 @@ export function switchTab(tab: TabType) {
   const s = useStore.getState();
   if (tab === s.currentTab) return;
 
-  if (CHANNELS_BETA_DISABLED && tab === 'channels') {
-    if (s.currentTab === 'channels') s.setCurrentTab('chat');
-    localStorage.setItem('hana-tab', 'chat');
-    return;
-  }
-
   if (tab === 'channels') {
     s.setActivePanel(null);
   }
 
   s.setCurrentTab(tab);
+  if (tab === 'channels') {
+    hydrateCurrentChannelIfNeeded().catch((err: unknown) =>
+      console.warn('[channels] hydrate current channel failed', err));
+  }
   localStorage.setItem('hana-tab', tab);
 
   const isPluginTab = typeof tab === 'string' && tab.startsWith('plugin:');
@@ -91,7 +88,6 @@ export function ChannelTabBar() {
   const tabOrder = useStore(s => s.tabOrder);
   const hiddenPluginTabs = useStore(s => s.hiddenPluginTabs);
   const [menu, setMenu] = useState<MenuState | null>(null);
-  const [betaModalOpen, setBetaModalOpen] = useState(false);
 
   // Filter out hidden plugin tabs
   const visiblePages = pluginPages.filter(p => !hiddenPluginTabs.includes(p.pluginId));
@@ -151,10 +147,6 @@ export function ChannelTabBar() {
   }, []);
 
   const handleTabClick = useCallback((tab: TabType) => {
-    if (CHANNELS_BETA_DISABLED && tab === 'channels') {
-      setBetaModalOpen(true);
-      return;
-    }
     switchTab(tab);
   }, []);
 
@@ -231,24 +223,7 @@ export function ChannelTabBar() {
     })),
   ];
 
-  const betaModal = (
-    <Overlay
-      open={betaModalOpen}
-      onClose={() => setBetaModalOpen(false)}
-      backdrop="dim"
-      zIndex={9999}
-      className={styles.channelBetaModal}
-    >
-      <div className={styles.channelBetaTitle}>{t('channel.betaTitle')}</div>
-      <div className={styles.channelBetaText}>{t('channel.betaMessage')}</div>
-      <button className={styles.channelBetaButton} onClick={() => setBetaModalOpen(false)}>
-        {t('common.confirm')}
-      </button>
-    </Overlay>
-  );
-
   return (
-    <>
     <div className={styles.tbTabs} ref={tabsRef}>
       <div className={styles.tbTabsSlider} ref={sliderRef}></div>
       {visibleTabs.map(tab => {
@@ -275,8 +250,7 @@ export function ChannelTabBar() {
             onDrop={(e) => onDrop(e, tab)}
             onDragEnd={onDragEnd}
           >
-            <span>{getTabLabel(tab, pluginPages, locale)}</span>
-            {tab === 'channels' && <span className={styles.tbTabBeta}>Beta</span>}
+            {getTabLabel(tab, pluginPages, locale)}
             {tab === 'channels' && channelTotalUnread > 0 && <span className={styles.tbTabBadge} />}
           </button>
         );
@@ -304,7 +278,5 @@ export function ChannelTabBar() {
       )}
       {menu && <ContextMenu items={menu.items} position={menu.position} onClose={() => setMenu(null)} />}
     </div>
-    {createPortal(betaModal, document.body)}
-    </>
   );
 }

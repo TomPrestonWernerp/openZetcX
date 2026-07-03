@@ -1,7 +1,7 @@
 /**
  * Electron client single-instance guard.
  *
- * Electron's requestSingleInstanceLock() is scoped by userData, so Hana sets
+ * Electron's requestSingleInstanceLock() is scoped by userData, so openZetcX sets
  * userData from HANA_HOME before requesting the lock. Production and dev homes
  * get different namespaces, while duplicate launches within the same home are
  * redirected to the first client.
@@ -15,7 +15,7 @@ function normalizeForCompare(filePath) {
 
 function getUserDataAppName(openZetcXHome, defaultHome) {
   if (normalizeForCompare(openZetcXHome) === normalizeForCompare(defaultHome)) {
-    return null;
+    return "openZetcX";
   }
   const suffix = path.basename(openZetcXHome).replace(/^\./, "");
   if (!suffix) return "openZetcX";

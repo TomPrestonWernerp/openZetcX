@@ -9,7 +9,19 @@ import type { ChatListItem } from '../../stores/chat-types';
 
 vi.mock('../../components/chat/ChatTranscript', () => ({
   ChatTranscript: ({ items }: { items: ChatListItem[] }) => (
-    <div data-testid="transcript">{items.map((item) => item.type === 'message' ? item.data.id : 'c').join(',')}</div>
+    <div data-testid="transcript">
+      {items.map((item) => {
+        if (item.type !== 'message') return <span key={item.id}>c</span>;
+        const text = item.data.role === 'user'
+          ? item.data.text
+          : item.data.blocks?.map((block) => block.type === 'text' ? (block.source || block.html) : '').join('');
+        return (
+          <article key={item.data.id} data-message-id={item.data.id}>
+            <span id={`message-${item.data.id}`}>{text}</span>
+          </article>
+        );
+      })}
+    </div>
   ),
 }));
 
@@ -22,6 +34,22 @@ import { ChatArea } from '../../components/chat/ChatArea';
 class MockResizeObserver {
   observe() {}
   disconnect() {}
+}
+
+// A ResizeObserver whose callback can be fired on demand, to exercise the post-activation
+// content-resize path (point #4: the first resize after a panel becomes active must snap, not animate).
+class TriggerableResizeObserver {
+  static instances: TriggerableResizeObserver[] = [];
+  private readonly callback: ResizeObserverCallback;
+  constructor(callback: ResizeObserverCallback) {
+    this.callback = callback;
+    TriggerableResizeObserver.instances.push(this);
+  }
+  observe() {}
+  disconnect() {}
+  trigger() {
+    this.callback([], this as unknown as ResizeObserver);
+  }
 }
 
 function setScrollMetrics(
@@ -57,6 +85,9 @@ describe('ChatArea continuous bottom scroll', () => {
     useStore.setState({
       currentSessionPath: '/chat/scroll.jsonl',
       welcomeVisible: false,
+      quoteCandidate: null,
+      quotedSelections: [],
+      quotedSelection: null,
       chatSessions: {
         '/chat/scroll.jsonl': {
           items: [message('u-1', 'user')],
@@ -68,10 +99,12 @@ describe('ChatArea continuous bottom scroll', () => {
       streamingSessions: ['/chat/scroll.jsonl'],
       agents: [{ id: 'hana', name: 'Hana', yuan: 'hanako' }],
     } as never);
+    window.getSelection()?.removeAllRanges();
   });
 
   afterEach(() => {
     cleanup();
+    window.getSelection()?.removeAllRanges();
     vi.restoreAllMocks();
   });
 
@@ -115,4 +148,118 @@ describe('ChatArea continuous bottom scroll', () => {
 
     expect(metrics.scrollTop).toBe(500);
   });
+
+  it('mounts a current empty session panel instead of leaving the chat area blank', async () => {
+    useStore.setState({
+      currentSessionPath: '/chat/empty.jsonl',
+      welcomeVisible: false,
+      chatSessions: {
+        '/chat/empty.jsonl': {
+          items: [],
+          hasMore: false,
+          loadingMore: false,
+        },
+      },
+      sessions: [{ path: '/chat/empty.jsonl', agentId: 'hana', title: null, firstMessage: '', modified: '', messageCount: 0 }],
+      streamingSessions: [],
+    } as never);
+
+    const { container } = render(<ChatArea />);
+
+    await waitFor(() => {
+      expect(container.querySelector('[class*="sessionPanel"]')).toBeTruthy();
+    });
+    expect(container.querySelector('[data-testid="transcript"]')).toBeTruthy();
+  });
+
+  it('captures chat text selection from the active panel on mouseup', async () => {
+    useStore.setState({
+      currentSessionPath: '/chat/scroll.jsonl',
+      chatSessions: {
+        '/chat/scroll.jsonl': {
+          items: [{
+            type: 'message',
+            data: {
+              id: 'a-quote',
+              role: 'assistant',
+              blocks: [{ type: 'text', html: '<p>可以引用的话</p>', source: '可以引用的话' }],
+            },
+          }],
+          hasMore: false,
+          loadingMore: false,
+        },
+      },
+    } as never);
+    const { container } = render(<ChatArea />);
+
+    await waitFor(() => {
+      expect(container.querySelector('[class*="sessionPanel"]')).toBeTruthy();
+    });
+
+    selectElementText(document.getElementById('message-a-quote')!);
+    fireEvent.mouseUp(container.querySelector('[class*="sessionPanel"]') as HTMLElement);
+
+    expect(useStore.getState().quoteCandidate).toMatchObject({
+      text: '可以引用的话',
+      sourceKind: 'chat',
+      sourceMessageId: 'a-quote',
+      sourceSessionPath: '/chat/scroll.jsonl',
+    });
+  });
+
+  it('snaps instantly on the first content resize after a panel becomes active (no animated follow)', async () => {
+    TriggerableResizeObserver.instances = [];
+    window.ResizeObserver = TriggerableResizeObserver as unknown as typeof ResizeObserver;
+    const rafCallbacks: FrameRequestCallback[] = [];
+    window.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      rafCallbacks.push(cb);
+      return rafCallbacks.length;
+    }) as typeof window.requestAnimationFrame;
+    window.cancelAnimationFrame = ((id: number) => { rafCallbacks[id - 1] = () => {}; }) as typeof window.cancelAnimationFrame;
+    window.matchMedia = ((q: string) => ({ matches: false, media: q, addEventListener() {}, removeEventListener() {} })) as unknown as typeof window.matchMedia;
+
+    useStore.setState({
+      currentSessionPath: '/chat/scroll.jsonl',
+      streamingSessions: [],
+      chatSessions: {
+        '/chat/scroll.jsonl': {
+          items: [message('u-1', 'user'), message('a-1', 'assistant')],
+          hasMore: false,
+          loadingMore: false,
+        },
+      },
+    } as never);
+
+    const { container } = render(<ChatArea />);
+    await waitFor(() => {
+      expect(container.querySelector('[class*="sessionPanel"]')).toBeTruthy();
+    });
+
+    const panel = container.querySelector('[class*="sessionPanel"]') as HTMLElement;
+    // Parked at the bottom after the first-content instant landing.
+    const metrics = { scrollHeight: 600, clientHeight: 300, scrollTop: 300 };
+    setScrollMetrics(panel, metrics);
+
+    // First post-activation content reflow (e.g. media finishes loading) grows content under the
+    // largeJump threshold. With the arm it must snap straight to the new bottom — no rAF animation.
+    act(() => {
+      metrics.scrollHeight = 950;
+      TriggerableResizeObserver.instances[0]?.trigger();
+    });
+    expect(metrics.scrollTop).toBe(650);
+
+    act(() => {
+      const pending = rafCallbacks.splice(0);
+      pending.forEach((cb) => cb(16));
+    });
+    expect(metrics.scrollTop).toBe(650);
+  });
 });
+
+function selectElementText(element: HTMLElement): void {
+  const range = document.createRange();
+  range.selectNodeContents(element);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}

@@ -15,9 +15,17 @@ interface SkillInfo {
  * Fetch enabled, visible skills for the current agent.
  * Returns a stable array that only updates when skills change.
  */
-export function useSkillSlashItems({ enabled = true }: { enabled?: boolean } = {}): SlashItem[] {
+export function useSkillSlashItems({
+  enabled = true,
+  agentId: explicitAgentId = null,
+}: {
+  enabled?: boolean;
+  agentId?: string | null;
+} = {}): SlashItem[] {
   const [skills, setSkills] = useState<SkillInfo[]>([]);
-  const agentId = useStore(s => s.currentAgentId);
+  const currentAgentId = useStore(s => s.currentAgentId);
+  const agentId = explicitAgentId || currentAgentId;
+  const skillCatalogVersion = useStore(s => s.skillCatalogVersion);
 
   useEffect(() => {
     if (!enabled) {
@@ -29,6 +37,7 @@ export function useSkillSlashItems({ enabled = true }: { enabled?: boolean } = {
       return;
     }
     let cancelled = false;
+    setSkills([]);
     hanaFetch(`/api/skills?agentId=${encodeURIComponent(agentId)}&runtime=1`)
       .then(r => r.json())
       .then(data => {
@@ -37,7 +46,7 @@ export function useSkillSlashItems({ enabled = true }: { enabled?: boolean } = {
       .catch(() => {});
     return () => { cancelled = true; };
     // skills 是 per-agent 的，不随 session 切换变化
-  }, [agentId, enabled]);
+  }, [agentId, enabled, skillCatalogVersion]);
 
   return useMemo(() =>
     skills

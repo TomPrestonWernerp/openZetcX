@@ -1,19 +1,21 @@
-/**
- * channel-actions.ts — Channel 副作用操作（网络请求 + 状态联动）
+﻿/**
+ * channel-actions.ts 鈥?Channel 鍓綔鐢ㄦ搷浣滐紙缃戠粶璇锋眰 + 鐘舵€佽仈鍔級
  *
- * 从 channel-slice.ts 提取，所有函数通过 useStore.getState() / useStore.setState() 访问 store。
+ * 浠?channel-slice.ts 鎻愬彇锛屾墍鏈夊嚱鏁伴€氳繃 useStore.getState() / useStore.setState() 璁块棶 store銆?
  */
 
-/* eslint-disable @typescript-eslint/no-explicit-any -- API 响应 JSON 及 catch(err: any) */
+/* eslint-disable @typescript-eslint/no-explicit-any -- API 鍝嶅簲 JSON 鍙?catch(err: any) */
 
 import { useStore } from './index';
 import { hanaFetch } from '../hooks/use-hana-fetch';
 import { hasServerConnection } from '../services/server-connection';
+import { activateWorkspaceDesk } from './desk-actions';
 import type { AgentPhoneActivity, AgentPhoneSettings, AgentPhoneToolMode, Channel, ChannelAgentActivities, ChannelMessage } from '../types';
+import { WORKSPACE_OUTPUT_ROOT_DIRNAME } from '../../../../shared/workspace-output.ts';
 
-// ══════════════════════════════════════════════════════
-// 加载集群列表
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// 鍔犺浇棰戦亾鍒楄〃
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
 export async function loadChannels(): Promise<void> {
   const s = useStore.getState();
@@ -75,11 +77,16 @@ export async function loadConversationAgentActivities(conversationId: string): P
     if (!res.ok) return;
     const data = await res.json();
     const activities = keyActivities(data.activities || []);
-    const current = (useStore.getState().channelAgentActivities || {}) as ChannelAgentActivities;
+    const latestState = useStore.getState();
+    const current = (latestState.channelAgentActivities || {}) as ChannelAgentActivities;
     useStore.setState({
       channelAgentActivities: {
         ...current,
         [conversationId]: activities,
+      },
+      channelTickerStatus: {
+        ...(latestState.channelTickerStatus || {}),
+        [conversationId]: data.ticker || null,
       },
     });
   } catch (err) {
@@ -157,6 +164,174 @@ function applyAgentPhoneSettings(settings: AgentPhoneSettings): void {
     channelAgentModelOverrideEnabled: settings.modelOverrideEnabled,
     channelAgentModelOverrideModel: settings.modelOverrideModel,
   });
+}
+
+function normalizeWorkspaceFolderName(value: string): string {
+  const normalized = value
+    .replace(/[<>:"/\\|?*\x00-\x1F]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .replace(/[. ]+$/g, '');
+  return normalized || 'channel';
+}
+
+function joinWorkspacePath(root: string, ...parts: string[]): string {
+  const separator = root.includes('\\') && !root.includes('/') ? '\\' : '/';
+  const base = root.replace(/[\\/]+$/g, '');
+  return [base, ...parts.map(part => part.replace(/^[\\/]+|[\\/]+$/g, '')).filter(Boolean)].join(separator);
+}
+
+function isAbsoluteWorkspacePath(value: string): boolean {
+  return /^(?:[A-Za-z]:[\\/]|[\\/]{2}|\/)/.test(value.trim());
+}
+
+function defaultChannelWorkspaceParentRoot(s: ReturnType<typeof useStore.getState>): string {
+  return s.homeFolder || s.selectedFolder || '';
+}
+
+function defaultChannelWorkspaceBaseRoot(s: ReturnType<typeof useStore.getState>): string {
+  const workspaceRoot = defaultChannelWorkspaceParentRoot(s);
+  return workspaceRoot ? joinWorkspacePath(workspaceRoot, WORKSPACE_OUTPUT_ROOT_DIRNAME) : '';
+}
+
+function resolveRelativeChannelWorkspaceRoot(value: string, s: ReturnType<typeof useStore.getState>, mode: 'base' | 'channel'): string | null {
+  const relative = value.trim().replace(/^[\\/]+|[\\/]+$/g, '');
+  if (!relative || relative === '.' || relative.includes('..')) return null;
+  const parentRoot = defaultChannelWorkspaceParentRoot(s);
+  if (!parentRoot) return null;
+  if (mode === 'base' || relative === WORKSPACE_OUTPUT_ROOT_DIRNAME || relative.startsWith(`${WORKSPACE_OUTPUT_ROOT_DIRNAME}/`)) {
+    return joinWorkspacePath(parentRoot, relative);
+  }
+  const baseRoot = defaultChannelWorkspaceBaseRoot(s);
+  return baseRoot ? joinWorkspacePath(baseRoot, relative) : null;
+}
+
+function resolveChannelWorkspaceRootValue(value: unknown, s: ReturnType<typeof useStore.getState>, mode: 'base' | 'channel'): string | null {
+  if (typeof value !== 'string') return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (isAbsoluteWorkspacePath(trimmed)) return trimmed;
+  return resolveRelativeChannelWorkspaceRoot(trimmed, s, mode);
+}
+
+async function ensureDeskFolder(root: string, subdir: string, name: string): Promise<void> {
+  try {
+    const res = await hanaFetch('/api/desk/files', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      throwOnHttpError: false,
+      body: JSON.stringify({
+        action: 'mkdir',
+        dir: root,
+        subdir,
+        name,
+      }),
+    });
+    if (!res.ok && res.status !== 409) {
+      console.warn('[channels] ensure channel workspace folder failed:', `${res.status} ${res.statusText}`);
+    }
+  } catch (err) {
+    console.warn('[channels] ensure channel workspace folder failed:', err);
+  }
+}
+
+async function persistChannelWorkspace(channelId: string, workspaceRoot: string): Promise<void> {
+  try {
+    const res = await hanaFetch(`/api/channels/${encodeURIComponent(channelId)}/workspace`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      throwOnHttpError: false,
+      body: JSON.stringify({ workspaceRoot }),
+    });
+    if (!res.ok && res.status !== 404) {
+      console.warn('[channels] persist channel workspace failed:', `${res.status} ${res.statusText}`);
+    }
+  } catch (err) {
+    console.warn('[channels] persist channel workspace failed:', err);
+  }
+}
+
+function rememberChannelWorkspace(channelId: string, workspaceRoot: string): void {
+  const latest = useStore.getState();
+  const previous = latest.channelWorkspaceById?.[channelId] || {};
+  useStore.setState({
+    channels: latest.channels.map((item: Channel) =>
+      item.id === channelId ? { ...item, workspaceRoot } : item,
+    ),
+    channelWorkspaceById: {
+      ...(latest.channelWorkspaceById || {}),
+      [channelId]: {
+        ...previous,
+        workspaceRoot,
+      },
+    },
+  });
+}
+
+function configuredChannelWorkspaceRoot(channel: Pick<Channel, 'id' | 'name' | 'workspaceRoot'> | undefined): string | null {
+  const s = useStore.getState();
+  const channelWorkspace = channel?.id ? s.channelWorkspaceById?.[channel.id] : null;
+  const latestChannel = channel?.id
+    ? s.channels.find((item: Channel) => item.id === channel.id)
+    : null;
+  const candidates = [
+    channelWorkspace?.workspaceRoot,
+    channel?.workspaceRoot,
+    latestChannel?.workspaceRoot,
+  ];
+  for (const candidate of candidates) {
+    const resolved = resolveChannelWorkspaceRootValue(candidate, s, 'channel');
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+async function ensureAbsoluteFolder(folder: string): Promise<void> {
+  const normalized = folder.replace(/[\\/]+$/g, '');
+  const idx = Math.max(normalized.lastIndexOf('/'), normalized.lastIndexOf('\\'));
+  if (idx <= 0) return;
+  await ensureDeskFolder(normalized.slice(0, idx), '', normalized.slice(idx + 1));
+}
+
+async function activateChannelWorkspace(channel: Pick<Channel, 'id' | 'name' | 'workspaceRoot'> | undefined, displayName: string): Promise<string | null> {
+  const s = useStore.getState();
+  const configuredRoot = configuredChannelWorkspaceRoot(channel);
+  const globalRoot = resolveChannelWorkspaceRootValue(s.channelWorkspaceRoot, s, 'base') || '';
+  const baseRoot = globalRoot || defaultChannelWorkspaceBaseRoot(s);
+
+  const folderName = normalizeWorkspaceFolderName(displayName || channel?.name || channel?.id || '');
+  const targetRoot = configuredRoot
+    || (baseRoot ? joinWorkspacePath(baseRoot, folderName) : '');
+  if (!targetRoot) return null;
+
+  if (configuredRoot) {
+    await ensureAbsoluteFolder(configuredRoot);
+  } else {
+    await ensureDeskFolder(baseRoot, '', folderName);
+  }
+  if (channel?.id) {
+    rememberChannelWorkspace(channel.id, targetRoot);
+    await persistChannelWorkspace(channel.id, targetRoot);
+  }
+  if (channel?.id && useStore.getState().currentChannel !== channel.id) return targetRoot;
+  await activateWorkspaceDesk(targetRoot, {
+    mountId: null,
+  });
+  return targetRoot;
+}
+
+export async function activateCurrentChannelWorkspace(): Promise<string | null> {
+  const state = useStore.getState();
+  const channelId = state.currentChannel;
+  if (!channelId || state.channelIsDM) return null;
+  const channel = state.channels.find((item: Channel) => item.id === channelId);
+  if (channel?.isDM) return null;
+  const displayName = state.channelInfoName || channel?.name || channelId;
+  const workspaceRoot = state.channelWorkspaceById?.[channelId]?.workspaceRoot || channel?.workspaceRoot;
+  return activateChannelWorkspace(
+    { id: channelId, name: displayName, workspaceRoot },
+    displayName,
+  );
 }
 
 function applyChannelMembers(channelId: string, members: string[]): void {
@@ -240,24 +415,25 @@ export async function saveConversationAgentPhoneSettings(patch: Partial<AgentPho
   applyAgentPhoneSettings(normalizeAgentPhoneSettings(data));
 }
 
-// ══════════════════════════════════════════════════════
-// 打开集群
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// 鎵撳紑棰戦亾
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
 export async function openChannel(channelId: string, isDM?: boolean): Promise<void> {
   const s = useStore.getState();
   const ch = s.channels.find((c: Channel) => c.id === channelId);
   const isThisDM = isDM ?? ch?.isDM ?? false;
   const t = window.t;
+  const cachedMessages = s.channelMessageCache[channelId] || [];
 
-  // 立刻切换 + 清空旧数据，防止残留上一个集群的内容
-  // DM 时从 channel 列表提取 peerId，即使 API 失败也能显示 agent 信息
+  // 绔嬪埢鍒囨崲 + 娓呯┖鏃ф暟鎹紝闃叉娈嬬暀涓婁竴涓閬撶殑鍐呭
+  // DM 鏃朵粠 channel 鍒楄〃鎻愬彇 peerId锛屽嵆浣?API 澶辫触涔熻兘鏄剧ず agent 淇℃伅
   const peerId = isThisDM ? (ch?.peerId || channelId.replace('dm:', '')) : '';
   const peerName = isThisDM ? (ch?.name || peerId) : '';
   const dmOwnerId = isThisDM ? ch?.dmOwnerId : undefined;
   useStore.setState({
     currentChannel: channelId,
-    channelMessages: [],
+    channelMessages: cachedMessages,
     channelMembers: isThisDM ? [peerId] : [],
     channelHeaderName: isThisDM ? peerName : '',
     channelHeaderMembersText: '',
@@ -272,34 +448,62 @@ export async function openChannel(channelId: string, isDM?: boolean): Promise<vo
       if (res.ok) {
         const data = await res.json();
         const responseOwnerId = data.ownerAgentId || dmOwnerId;
+        const messages = data.messages || [];
+        const fresh = useStore.getState();
         useStore.setState({
-          channelMessages: data.messages || [],
+          channelMessages: messages,
+          channelMessageCache: {
+            ...fresh.channelMessageCache,
+            [channelId]: messages,
+          },
+          channelMessageCacheDirty: {
+            ...fresh.channelMessageCacheDirty,
+            [channelId]: false,
+          },
           channelHeaderName: data.peerName || peerName,
           channelInfoName: data.peerName || peerName,
           channels: responseOwnerId
-            ? useStore.getState().channels.map((channel: Channel) =>
+            ? fresh.channels.map((channel: Channel) =>
               channel.id === channelId ? { ...channel, dmOwnerId: responseOwnerId } : channel)
-            : useStore.getState().channels,
+            : fresh.channels,
         });
       }
-      // 404 = 没有历史，基本信息已在上方设置，不需要额外处理
+      // 404 = 娌℃湁鍘嗗彶锛屽熀鏈俊鎭凡鍦ㄤ笂鏂硅缃紝涓嶉渶瑕侀澶栧鐞?
     } else {
       const res = await hanaFetch(`/api/channels/${encodeURIComponent(channelId)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
+      const displayName = data.name || channelId;
       const members = data.members || [];
       const displayMembers = [useStore.getState().userName || 'user', ...members];
+      const messages = data.messages || [];
+      const fresh = useStore.getState();
+      const workspaceRoot = data.workspaceRoot || ch?.workspaceRoot || null;
       useStore.setState({
-        channelMessages: data.messages || [],
+        channelMessages: messages,
+        channelMessageCache: {
+          ...fresh.channelMessageCache,
+          [channelId]: messages,
+        },
+        channelMessageCacheDirty: {
+          ...fresh.channelMessageCacheDirty,
+          [channelId]: false,
+        },
         channelMembers: members,
-        channelHeaderName: `# ${data.name || channelId}`,
+        channelHeaderName: `# ${displayName}`,
         channelHeaderMembersText: `${displayMembers.length} ${t('channel.membersCount')}`,
         channelIsDM: false,
-        channelInfoName: data.name || channelId,
+        channelInfoName: displayName,
+        channels: fresh.channels.map((channel: Channel) =>
+          channel.id === channelId
+            ? { ...channel, name: displayName, members, workspaceRoot: workspaceRoot || channel.workspaceRoot || null }
+            : channel,
+        ),
       });
+      await activateChannelWorkspace({ id: channelId, name: displayName, workspaceRoot }, displayName);
 
       // Mark as read
-      const msgs = data.messages || [];
+      const msgs = messages;
       const lastMsg = msgs[msgs.length - 1];
       if (lastMsg) {
         hanaFetch(`/api/channels/${encodeURIComponent(channelId)}/read`, {
@@ -308,7 +512,7 @@ export async function openChannel(channelId: string, isDM?: boolean): Promise<vo
           body: JSON.stringify({ timestamp: lastMsg.timestamp }),
         }).catch((err: unknown) => console.warn('[channel-actions] mark-as-read failed', err));
 
-        // 重新取 store 最新状态，避免覆盖 await 期间的并发更新
+        // 閲嶆柊鍙?store 鏈€鏂扮姸鎬侊紝閬垮厤瑕嗙洊 await 鏈熼棿鐨勫苟鍙戞洿鏂?
         const fresh = useStore.getState();
         const freshCh = fresh.channels.find((c: Channel) => c.id === channelId);
         if (freshCh) {
@@ -339,11 +543,48 @@ function sortChannelsByRecent(channels: Channel[]): Channel[] {
   );
 }
 
-// ══════════════════════════════════════════════════════
-// 增量追加集群消息
-// ══════════════════════════════════════════════════════
+function sameCachedMessage(a: ChannelMessage, b: ChannelMessage): boolean {
+  return sameChannelMessage(a, b);
+}
 
-export function appendChannelMessage(channelId: string, message: ChannelMessage): void {
+export function markChannelMessagesDirty(channelId: string): void {
+  if (!channelId) return;
+  const state = useStore.getState();
+  useStore.setState({
+    channelMessageCacheDirty: {
+      ...state.channelMessageCacheDirty,
+      [channelId]: true,
+    },
+  });
+}
+
+export async function hydrateCurrentChannelIfNeeded(): Promise<void> {
+  const state = useStore.getState();
+  const channelId = state.currentChannel;
+  if (!channelId) return;
+
+  const cached = state.channelMessageCache[channelId];
+  const dirty = state.channelMessageCacheDirty[channelId] === true;
+  const channel = state.channels.find((item: Channel) => item.id === channelId);
+  if (cached) {
+    useStore.setState({ channelMessages: cached });
+  }
+  if (!cached || dirty) {
+    await openChannel(channelId, channel?.isDM);
+    return;
+  }
+  if (!channel?.isDM) await activateCurrentChannelWorkspace();
+}
+
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// 澧為噺杩藉姞棰戦亾娑堟伅
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+
+export function appendChannelMessage(
+  channelId: string,
+  message: ChannelMessage,
+  options: { markRead?: boolean; countUnread?: boolean } = { markRead: true },
+): void {
   if (
     !channelId
     || typeof message?.sender !== 'string'
@@ -353,9 +594,14 @@ export function appendChannelMessage(channelId: string, message: ChannelMessage)
 
   const state = useStore.getState();
   const isCurrentChannel = state.currentChannel === channelId;
-  const alreadyInCurrent = isCurrentChannel
-    ? state.channelMessages.some((m: ChannelMessage) => sameChannelMessage(m, message))
-    : false;
+  const cachedMessages = state.channelMessageCache[channelId];
+  const baseMessages = cachedMessages || (isCurrentChannel ? state.channelMessages : []);
+  const alreadyInCache = baseMessages.some((m: ChannelMessage) => sameCachedMessage(m, message));
+  const nextMessages = alreadyInCache ? baseMessages : [...baseMessages, message];
+  const shouldMarkRead = isCurrentChannel && options.markRead === true;
+  const shouldCountUnread = !shouldMarkRead && options.countUnread !== false;
+  const nextCacheDirty = state.channelMessageCacheDirty[channelId] === true
+    || (!cachedMessages && !isCurrentChannel);
 
   let unreadDelta = 0;
   let readDelta = 0;
@@ -368,11 +614,11 @@ export function appendChannelMessage(channelId: string, message: ChannelMessage)
       && channel.lastMessage === message.body.slice(0, 60);
 
     const previousUnread = channel.newMessageCount || 0;
-    const nextUnread = isCurrentChannel
-      ? 0
-      : previousUnread + (isDuplicatePreview ? 0 : 1);
+    const nextUnread = shouldMarkRead ? 0 : previousUnread + (
+      shouldCountUnread && !isDuplicatePreview ? 1 : 0
+    );
 
-    if (isCurrentChannel) {
+    if (shouldMarkRead) {
       readDelta = previousUnread;
     } else {
       unreadDelta += nextUnread - previousUnread;
@@ -390,16 +636,24 @@ export function appendChannelMessage(channelId: string, message: ChannelMessage)
 
   const patch: Partial<ReturnType<typeof useStore.getState>> = {
     channels: sortChannelsByRecent(updatedChannels),
+    channelMessageCache: {
+      ...state.channelMessageCache,
+      [channelId]: nextMessages,
+    },
+    channelMessageCacheDirty: {
+      ...state.channelMessageCacheDirty,
+      [channelId]: nextCacheDirty,
+    },
     channelTotalUnread: Math.max(0, state.channelTotalUnread + unreadDelta - readDelta),
   };
 
-  if (isCurrentChannel && !alreadyInCurrent) {
-    patch.channelMessages = [...state.channelMessages, message];
+  if (isCurrentChannel) {
+    patch.channelMessages = nextMessages;
   }
 
   useStore.setState(patch);
 
-  if (isCurrentChannel) {
+  if (shouldMarkRead) {
     Promise.resolve(hanaFetch(`/api/channels/${encodeURIComponent(channelId)}/read`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -408,16 +662,22 @@ export function appendChannelMessage(channelId: string, message: ChannelMessage)
   }
 }
 
-// ══════════════════════════════════════════════════════
-// 发送消息
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// 鍙戦€佹秷鎭?
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
 export async function sendChannelMessage(text: string): Promise<void> {
   const s = useStore.getState();
-  if (!text.trim() || !s.currentChannel) return;
+  const channelId = s.currentChannel;
+  const body = text.trim();
+  if (!body || !channelId) return;
+  const sender = s.userName || 'user';
 
   try {
-    const res = await hanaFetch(`/api/channels/${encodeURIComponent(s.currentChannel)}/messages`, {
+    if (!s.channelIsDM) {
+      await activateCurrentChannelWorkspace();
+    }
+    const res = await hanaFetch(`/api/channels/${encodeURIComponent(channelId)}/messages`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ body: text }),
@@ -425,24 +685,20 @@ export async function sendChannelMessage(text: string): Promise<void> {
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
     if (data.ok && data.timestamp) {
-      // 重新取最新消息列表，避免覆盖 await 期间的并发更新
-      const fresh = useStore.getState();
-      useStore.setState({
-        channelMessages: [...fresh.channelMessages, {
-          sender: fresh.userName || 'user',
-          timestamp: data.timestamp,
-          body: text,
-        }],
-      });
+      appendChannelMessage(channelId, {
+        sender,
+        timestamp: data.timestamp,
+        body: text,
+      }, { markRead: true, countUnread: false });
     }
   } catch (err) {
     console.error('[channels] send failed:', err);
   }
 }
 
-// ══════════════════════════════════════════════════════
-// 删除集群
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// 鍒犻櫎棰戦亾
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
 export async function deleteChannel(channelId: string): Promise<void> {
   const s = useStore.getState();
@@ -472,9 +728,9 @@ export async function deleteChannel(channelId: string): Promise<void> {
   }
 }
 
-// ══════════════════════════════════════════════════════
-// 频道成员管理
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// 棰戦亾鎴愬憳绠＄悊
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
 export async function addChannelMember(channelId: string, memberId: string): Promise<void> {
   const res = await hanaFetch(`/api/channels/${encodeURIComponent(channelId)}/members`, {
@@ -500,37 +756,58 @@ export async function removeChannelMember(channelId: string, memberId: string): 
   applyChannelMembers(channelId, data.members || []);
 }
 
-// ══════════════════════════════════════════════════════
-// 切换频道功能开关
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// 鍒囨崲棰戦亾鍔熻兘寮€鍏?
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
-export async function toggleChannelsEnabled(): Promise<boolean> {
+export async function toggleChannelsEnabled(): Promise<boolean | undefined> {
   const s = useStore.getState();
+  if (s.channelsEnabled === undefined) return undefined;
+  const previousEnabled = s.channelsEnabled;
   const newEnabled = !s.channelsEnabled;
-  useStore.setState({ channelsEnabled: newEnabled });
-
-  if (newEnabled) {
-    await loadChannels();
-  }
 
   try {
-    await hanaFetch('/api/channels/toggle', {
+    const res = await hanaFetch('/api/channels/toggle', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ enabled: newEnabled }),
     });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json().catch(() => ({}));
+    const enabled = typeof data.enabled === 'boolean' ? data.enabled : newEnabled;
+    useStore.setState({ channelsEnabled: enabled });
+
+    if (enabled) {
+      await loadChannels();
+    } else {
+      useStore.setState({
+        channels: [],
+        currentChannel: null,
+        channelMessages: [],
+        channelMessageCache: {},
+        channelMessageCacheDirty: {},
+        channelMembers: [],
+        channelTotalUnread: 0,
+        channelHeaderName: '',
+        channelHeaderMembersText: '',
+        channelInfoName: '',
+        channelIsDM: false,
+      });
+    }
+
+    return enabled;
   } catch (err) {
     console.error('[channels] toggle backend failed:', err);
+    useStore.setState({ channelsEnabled: previousEnabled });
+    return previousEnabled;
   }
-
-  return newEnabled;
 }
 
-// ══════════════════════════════════════════════════════
-// 创建集群
-// ══════════════════════════════════════════════════════
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
+// 鍒涘缓棰戦亾
+// 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 
-export async function createChannel(name: string, members: string[], intro?: string): Promise<string | null> {
+export async function createChannel(name: string, members: string[], intro?: string, workspaceRoot?: string): Promise<string | null> {
   try {
     const res = await hanaFetch('/api/channels', {
       method: 'POST',
@@ -539,10 +816,12 @@ export async function createChannel(name: string, members: string[], intro?: str
         name,
         members,
         intro: intro || undefined,
+        workspaceRoot: workspaceRoot?.trim() || undefined,
       }),
+      throwOnHttpError: false,
     });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
     if (data.error) throw new Error(data.error);
 
     await loadChannels();

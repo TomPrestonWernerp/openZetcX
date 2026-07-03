@@ -13,7 +13,7 @@ function expandHome(input, homeDir = os.homedir()) {
   return input;
 }
 
-function resolveopenZetcXHome(input, homeDir = os.homedir()) {
+function resolveOpenZetcXHome(input, homeDir = os.homedir()) {
   const raw = input || path.join(homeDir, ".openZetcX");
   return path.resolve(expandHome(raw, homeDir));
 }
@@ -55,7 +55,7 @@ module.exports = {
   PI_SDK_AGENT_DIR_ENV,
   configureProcessPiSdkEnv,
   ensureHanaPiSdkDirs,
-  resolveopenZetcXHome,
+  resolveOpenZetcXHome,
   resolveHanaPiAgentDir,
   resolveHanaPiProjectDir,
   resolveHanaPiRoot,

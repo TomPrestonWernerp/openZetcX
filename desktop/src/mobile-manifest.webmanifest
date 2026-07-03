@@ -1,6 +1,6 @@
 {
-  "name": "Hana Mobile",
-  "short_name": "Hana",
+  "name": "openZetcX",
+  "short_name": "openZetcX",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

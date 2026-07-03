@@ -56,6 +56,10 @@ vi.mock('../../components/AutomationPanel', () => ({
   AutomationPanel: () => <section data-testid="automation-panel" />,
 }));
 
+vi.mock('../../components/SkillsPanel', () => ({
+  SkillsPanel: () => <section data-testid="skills-panel" />,
+}));
+
 vi.mock('../../components/BridgePanel', () => ({
   BridgePanel: () => <section data-testid="bridge-panel" />,
 }));
@@ -80,7 +84,7 @@ describe('AppPages page ownership', () => {
     cleanup();
   });
 
-  it('renders the file preview only on the chat page', () => {
+  it('renders the file preview on the chat page', () => {
     render(<AppPages />);
 
     expect(screen.getByTestId('chat-area')).toBeInTheDocument();
@@ -98,7 +102,7 @@ describe('AppPages page ownership', () => {
     expect(screen.getByTestId('right-workspace-panel')).toBeInTheDocument();
   });
 
-  it('keeps channel inspector and workspace companion as separate right-side panels', () => {
+  it('keeps channel inspector, file preview, and workspace companion available on channel pages', () => {
     useStore.setState({
       currentTab: 'channels',
       currentChannel: 'ch_crew',
@@ -116,7 +120,7 @@ describe('AppPages page ownership', () => {
       screen.getByTestId('channel-agent-settings').compareDocumentPosition(screen.getByTestId('channel-agent-activity'))
         & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.queryByTestId('preview-panel')).not.toBeInTheDocument();
+    expect(document.querySelector('#previewPanel')).toBeInTheDocument();
     expect(screen.getByTestId('right-workspace-panel')).toBeInTheDocument();
   });
 });

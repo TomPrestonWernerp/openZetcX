@@ -1,6 +1,4 @@
-#!/usr/bin/env node
 import fs from "fs";
-import { tmpdir } from "os";
 import path from "path";
 import { execFileSync } from "child_process";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -38,6 +36,7 @@ export function buildWindowsSandboxCompileCommand({ source, output } = {}) {
     `/OUT:${quoteCmd(output)}`,
     "userenv.lib",
     "advapi32.lib",
+    "user32.lib",
   ].join(" ");
 }
 
@@ -73,12 +72,12 @@ function findVsDevCmd() {
   }
 }
 
-function runCompile(command, { rootDir, arch, workDir }) {
+function runCompile(command, { rootDir, arch }) {
   const devCmd = findVsDevCmd();
-  const scriptPath = path.join(workDir || windowsSandboxHelperOutputDir({ rootDir, arch }), "build-windows-sandbox-helper.cmd");
+  const scriptPath = path.join(windowsSandboxHelperOutputDir({ rootDir, arch }), "build-windows-sandbox-helper.cmd");
   fs.writeFileSync(scriptPath, buildWindowsSandboxBatchScript({ devCmd, compileCommand: command, arch }), "utf-8");
   execFileSync("cmd.exe", ["/d", "/c", scriptPath], {
-    cwd: workDir || rootDir,
+    cwd: rootDir,
     stdio: "inherit",
     windowsHide: true,
   });
@@ -103,23 +102,9 @@ export function buildWindowsSandboxHelper({
   fs.rmSync(outDir, { recursive: true, force: true });
   fs.mkdirSync(outDir, { recursive: true });
   const output = path.join(outDir, "hana-win-sandbox.exe");
+  const command = buildWindowsSandboxCompileCommand({ source, output });
   console.log(`[windows-sandbox-helper] building ${output}`);
-
-  const tempDir = fs.mkdtempSync(path.join(tmpdir(), "openzetcx-sandbox-build-"));
-  try {
-    const tempSource = path.join(tempDir, "main.cpp");
-    const tempOutput = path.join(tempDir, "hana-win-sandbox.exe");
-    fs.copyFileSync(source, tempSource);
-    const command = buildWindowsSandboxCompileCommand({ source: tempSource, output: tempOutput });
-    runCompile(command, { rootDir, arch, workDir: tempDir });
-    if (!fs.existsSync(tempOutput)) {
-      throw new Error(`[windows-sandbox-helper] build did not produce ${tempOutput}`);
-    }
-    fs.copyFileSync(tempOutput, output);
-  } finally {
-    fs.rmSync(tempDir, { recursive: true, force: true });
-  }
-
+  runCompile(command, { rootDir, arch });
   if (!fs.existsSync(output)) {
     throw new Error(`[windows-sandbox-helper] build did not produce ${output}`);
   }

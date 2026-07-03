@@ -1,17 +1,25 @@
-import type { AgentPhoneToolMode, Channel, ChannelAgentActivities, ChannelMessage } from '../types';
+import type { AgentPhoneToolMode, Channel, ChannelAgentActivities, ChannelMessage, ChannelTickerStatusMap } from '../types';
+
+export interface ChannelWorkspaceSettings {
+  workspaceRoot?: string;
+  permissionMode?: 'auto' | 'operate' | 'read_only';
+}
 
 export interface ChannelSlice {
   channels: Channel[];
   currentChannel: string | null;
   channelMessages: ChannelMessage[];
+  channelMessageCache: Record<string, ChannelMessage[]>;
+  channelMessageCacheDirty: Record<string, boolean>;
   channelMembers: string[];
   channelTotalUnread: number;
-  channelsEnabled: boolean;
+  channelsEnabled: boolean | undefined;
   channelHeaderName: string;
   channelHeaderMembersText: string;
   channelInfoName: string;
   channelIsDM: boolean;
   channelAgentActivities: ChannelAgentActivities;
+  channelTickerStatus: ChannelTickerStatusMap;
   channelAgentPhoneToolMode: AgentPhoneToolMode;
   channelAgentReplyMinChars: number | null;
   channelAgentReplyMaxChars: number | null;
@@ -20,11 +28,14 @@ export interface ChannelSlice {
   channelAgentGuardLimit: number;
   channelAgentModelOverrideEnabled: boolean;
   channelAgentModelOverrideModel: { id: string; provider: string } | null;
+  channelWorkspaceRoot: string | null;
+  channelWorkspacePermissionMode: 'auto' | 'operate' | 'read_only';
+  channelWorkspaceById: Record<string, ChannelWorkspaceSettings>;
   setChannels: (channels: Channel[]) => void;
   setCurrentChannel: (channel: string | null) => void;
   setChannelMessages: (messages: ChannelMessage[]) => void;
   setChannelTotalUnread: (count: number) => void;
-  setChannelsEnabled: (enabled: boolean) => void;
+  setChannelsEnabled: (enabled: boolean | undefined) => void;
 }
 
 export const createChannelSlice = (
@@ -33,14 +44,17 @@ export const createChannelSlice = (
   channels: [],
   currentChannel: null,
   channelMessages: [],
+  channelMessageCache: {},
+  channelMessageCacheDirty: {},
   channelMembers: [],
   channelTotalUnread: 0,
-  channelsEnabled: false,
+  channelsEnabled: undefined,
   channelHeaderName: '',
   channelHeaderMembersText: '',
   channelInfoName: '',
   channelIsDM: false,
   channelAgentActivities: {},
+  channelTickerStatus: {},
   channelAgentPhoneToolMode: 'read_only',
   channelAgentReplyMinChars: null,
   channelAgentReplyMaxChars: null,
@@ -49,6 +63,9 @@ export const createChannelSlice = (
   channelAgentGuardLimit: 36,
   channelAgentModelOverrideEnabled: false,
   channelAgentModelOverrideModel: null,
+  channelWorkspaceRoot: null,
+  channelWorkspacePermissionMode: 'auto',
+  channelWorkspaceById: {},
   setChannels: (channels) => set({ channels }),
   setCurrentChannel: (channel) => set({ currentChannel: channel }),
   setChannelMessages: (messages) => set({ channelMessages: messages }),

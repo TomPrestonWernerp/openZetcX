@@ -1,76 +1,77 @@
-# ═══════════════════════════════════════════
-# 系统配置（唯一配置源）
-# 复制本文件为 config.yaml 并填入你的信息
-# ═══════════════════════════════════════════
+﻿# 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
+# 绯荤粺閰嶇疆锛堝敮涓€閰嶇疆婧愶級
+# 澶嶅埗鏈枃浠朵负 config.yaml 骞跺～鍏ヤ綘鐨勪俊鎭?
+# 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺?
 
-# 身份信息
+# 韬唤淇℃伅
 agent:
-  name: openZetcX                           # 你的助手叫什么
-  yuan: openZetcX                           # 源模板：openZetcX / butter / ming
+  name: openZetcX                        # assistant name
+  yuan: openZetcX                        # Ta template: openZetcX
 user:
-  name: ""                               # 你的名字
+  name: ""                               # 浣犵殑鍚嶅瓧
 
-# API 配置（主通道）
-# 凭证从全局 ~/.openZetcX/added-models.yaml 或当前 agent 的 providers 块读取
+# API 閰嶇疆锛堜富閫氶亾锛?
+# 鍑瘉浠庡叏灞€ ~/.openZetcX/added-models.yaml 鎴栧綋鍓?agent 鐨?providers 鍧楄鍙?
 api:
   provider: ""                     # dashscope / volcengine / openai / ...
 
-# Embedding 专用 API（可选）
-# 如果 embedding 模型和主模型不在同一个 provider，在这里单独配
+# Embedding 涓撶敤 API锛堝彲閫夛級
+# 濡傛灉 embedding 妯″瀷鍜屼富妯″瀷涓嶅湪鍚屼竴涓?provider锛屽湪杩欓噷鍗曠嫭閰?
 embedding_api:
-  provider: ""                     # embedding 走哪个 provider
+  provider: ""                     # embedding 璧板摢涓?provider
 
-# 模型配置
+# 妯″瀷閰嶇疆
 models:
-  chat: ""                         # 主对话模型
-  utility: ""                      # 工具模型（对话摘要等轻量任务）
-  utility_large: ""                # 大工具模型（记忆编译、深度分析等需要理解力的任务）
-  embedding: ""                    # 向量模型
-  embedding_dimensions: 1024       # 向量维度
+  chat: ""                         # 涓诲璇濇ā鍨?
+  utility: ""                      # 宸ュ叿妯″瀷锛堝璇濇憳瑕佺瓑杞婚噺浠诲姟锛?
+  utility_large: ""                # 澶у伐鍏锋ā鍨嬶紙璁板繂缂栬瘧銆佹繁搴﹀垎鏋愮瓑闇€瑕佺悊瑙ｅ姏鐨勪换鍔★級
+  embedding: ""                    # 鍚戦噺妯″瀷
+  embedding_dimensions: 1024       # 鍚戦噺缁村害
 
-# 记忆系统配置
-# 高斯衰减：score = score × e^(-λ × t²)，t = days since last access
-# 前几天慢、中间加速、尾部趋零，约两周自然归零。
-# decay_per_day 就是 λ，控制衰减陡度：
-#   λ = 0.01 → 约 19 天归零（慢，记忆广）
-#   λ = 0.02 → 约 14 天归零（默认）
-#   λ = 0.04 → 约 10 天归零（快，聚焦近期）
-# 被 hit 过的记忆会重置衰减起点，常提起的记忆不会消失。
-# token_budget 控制 memory.md 能装多少内容。
+# 璁板繂绯荤粺閰嶇疆
+# 楂樻柉琛板噺锛歴core = score 脳 e^(-位 脳 t虏)锛宼 = days since last access
+# 鍓嶅嚑澶╂參銆佷腑闂村姞閫熴€佸熬閮ㄨ秼闆讹紝绾︿袱鍛ㄨ嚜鐒跺綊闆躲€?
+# decay_per_day 灏辨槸 位锛屾帶鍒惰“鍑忛櫋搴︼細
+#   位 = 0.01 鈫?绾?19 澶╁綊闆讹紙鎱紝璁板繂骞匡級
+#   位 = 0.02 鈫?绾?14 澶╁綊闆讹紙榛樿锛?
+#   位 = 0.04 鈫?绾?10 澶╁綊闆讹紙蹇紝鑱氱劍杩戞湡锛?
+# 琚?hit 杩囩殑璁板繂浼氶噸缃“鍑忚捣鐐癸紝甯告彁璧风殑璁板繂涓嶄細娑堝け銆?
+# token_budget 鎺у埗 memory.md 鑳借澶氬皯鍐呭銆?
 memory:
-  enabled: true                   # 记忆总开关：默认开启，用户需要时可在设置中关闭
-  token_budget: 2500               # memory.md 的目标 token 预算
-  decay_per_day: 0.02              # 高斯衰减系数 λ（越大遗忘越快）
-  hit_bonus: 5                     # 每次命中加多少分
-  base_importance: 10              # 新记忆的默认初始分
-  compile_threshold: 4.5           # 分数低于此值的记忆不进入 memory.md
-  forget_speed: 1.0                # 遗忘倍率（1.0 = 正常，2.0 = 忘得快一倍）
+  enabled: true                   # 璁板繂鎬诲紑鍏筹細榛樿寮€鍚紝鐢ㄦ埛闇€瑕佹椂鍙湪璁剧疆涓叧闂?
+  token_budget: 2500               # memory.md 鐨勭洰鏍?token 棰勭畻
+  decay_per_day: 0.02              # 楂樻柉琛板噺绯绘暟 位锛堣秺澶ч仐蹇樿秺蹇級
+  hit_bonus: 5                     # 姣忔鍛戒腑鍔犲灏戝垎
+  base_importance: 10              # 鏂拌蹇嗙殑榛樿鍒濆鍒?
+  compile_threshold: 4.5           # 鍒嗘暟浣庝簬姝ゅ€肩殑璁板繂涓嶈繘鍏?memory.md
+  forget_speed: 1.0                # 閬楀繕鍊嶇巼锛?.0 = 姝ｅ父锛?.0 = 蹇樺緱蹇竴鍊嶏級
 
-# 经验库（默认关闭）：开启后助手会总结工作经验并在后续任务中参考，
-# 但经验可能污染上下文，建议明确需要时再打开。
+# 缁忛獙搴擄紙榛樿鍏抽棴锛夛細寮€鍚悗鍔╂墜浼氭€荤粨宸ヤ綔缁忛獙骞跺湪鍚庣画浠诲姟涓弬鑰冿紝
+# 浣嗙粡楠屽彲鑳芥薄鏌撲笂涓嬫枃锛屽缓璁槑纭渶瑕佹椂鍐嶆墦寮€銆?
 experience:
   enabled: false
 
-# 网页搜索（可选）
-# auto 会优先使用已配置的 API provider，再回退到免费浏览器搜索。
-# API provider：tavily / brave / serper。浏览器 provider：bing_browser / google_browser / duckduckgo_browser。
+# 缃戦〉鎼滅储锛堝彲閫夛級
+# auto 浼氫紭鍏堜娇鐢ㄥ凡閰嶇疆鐨勪粯璐?API provider锛屽啀鍥為€€鍒?AnySearch 鍏嶈垂鎼滅储鍜屾祻瑙堝櫒鎼滅储銆?
+# API provider锛歛nysearch / tavily / brave / serper銆傚厤璐?API provider锛歛nysearch_free銆傛祻瑙堝櫒 provider锛歜ing_browser / google_browser / duckduckgo_browser銆?
 search:
-  provider: "auto"                       # 也可显式填 bing_browser / google_browser / duckduckgo_browser / tavily / brave / serper
-  api_keys:                              # auto 下可同时配置多个；没有 key 时直接走浏览器搜索
+  provider: "auto"                       # 涔熷彲鏄惧紡濉?anysearch / anysearch_free / bing_browser / google_browser / duckduckgo_browser / tavily / brave / serper
+  api_keys:                              # auto 涓嬪彲鍚屾椂閰嶇疆澶氫釜锛涙病鏈?key 鏃跺厛璧?AnySearch 鍏嶈垂鎼滅储锛屽啀璧版祻瑙堝櫒鎼滅储
+    anysearch: ""
     tavily: ""
     brave: ""
     serper: ""
-  api_key: ""                            # 旧单 provider 兼容字段；新配置优先用 api_keys
+  api_key: ""                            # 鏃у崟 provider 鍏煎瀛楁锛涙柊閰嶇疆浼樺厛鐢?api_keys
 
-# Skills（per-agent 技能开关）
+# Skills锛坧er-agent 鎶€鑳藉紑鍏筹級
 skills:
-  enabled: ["skill-creator", "office-documents"]         # 启用的 skill 名称，如 ["pdf", "literary-craft"]
+  enabled: ["skill-creator"]                             # 鍚敤鐨?skill 鍚嶇О锛屽 ["pdf", "literary-craft"]
 
-# 工作书桌
+# 宸ヤ綔涔︽
 desk:
-  heartbeat_enabled: false           # 巡检默认关闭，用户明确开启后才会自动巡检
-  heartbeat_interval: 31             # 巡检间隔（分钟）
+  heartbeat_enabled: false           # 宸℃榛樿鍏抽棴锛岀敤鎴锋槑纭紑鍚悗鎵嶄細鑷姩宸℃
+  heartbeat_interval: 31             # 宸℃闂撮殧锛堝垎閽燂級
 
-# 集群系统（agent 间协作通信）
+# 棰戦亾绯荤粺锛坅gent 闂村崗浣滈€氫俊锛?
 channels:
-  enabled: false                     # 是否参与集群轮转
+  enabled: false                     # 鏄惁鍙備笌棰戦亾杞浆

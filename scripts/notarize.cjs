@@ -12,9 +12,8 @@ exports.default = async function notarizing(context) {
   console.log(`Notarizing ${appName}...`);
 
   const password = process.env.APPLE_APP_SPECIFIC_PASSWORD || process.env.APPLE_ID_PASSWORD;
-  if (!process.env.APPLE_ID || !password || !process.env.APPLE_TEAM_ID) {
-    console.log('Skipping notarization (Apple notarization credentials are not configured)');
-    return;
+  if (!password) {
+    throw new Error('Set APPLE_APP_SPECIFIC_PASSWORD or APPLE_ID_PASSWORD for notarization');
   }
 
   await notarize({

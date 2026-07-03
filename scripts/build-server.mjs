@@ -18,11 +18,6 @@
  *     bundle/                 ← Vite bundle 产出
  *       index.js              ← 入口（~750KB）
  *       cli.js                ← server-first CLI 入口
- *       chunks/               ← 按模块拆分的 chunk
- *         shared-XXXX.js
- *         core-XXXX.js
- *         lib-XXXX.js
- *         hub-XXXX.js
  *     lib/                    ← 数据文件（非源码，运行时 fromRoot() 读取）
  *       known-models.json
  *       known-model-fallbacks.json
@@ -37,7 +32,7 @@
  *       yuan/
  *     desktop/src/assets/     ← server 运行时读取的默认头像、角色卡背、Yuan 图标
  *     desktop/src/locales/    ← i18n 资源
- *     desktop/dist-renderer/  ← PWA 静态入口和 hashed assets（/mobile/* 由 server 读取）
+ *     desktop/dist-renderer/  ← PWA 静态入口、hashed assets、themes（/mobile/* 由 server 读取）
  *     skills2set/             ← 技能包
  *     package.json            ← external deps + version（node_modules 解析 + 运行时版本读取）
  *     package-lock.json       ← npm install 生成，记录 external 安装结果
@@ -45,13 +40,21 @@
  */
 import fs from "fs";
 import path from "path";
+import { createHash } from "crypto";
 import { execSync } from "child_process";
 import { fileURLToPath } from "url";
 import { builtinModules } from "module";
 import {
+  buildBetterSqliteRuntimeSmokeScript,
+  buildJiebaRuntimeSmokeScript,
   buildExternalPackage,
+  collectInstalledOptionalDependencyDirs,
   verifyExternalEntrypoints,
 } from "./build-server-deps.mjs";
+import {
+  collectBundledPluginPackageDependencies,
+  copyBundledPluginRuntimeDependencies,
+} from "./build-server-plugin-runtime-deps.mjs";
 import { copyServerRuntimeAssets } from "./build-server-runtime-assets.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -70,7 +73,14 @@ fs.mkdirSync(outDir, { recursive: true });
 
 // ── 1. 下载 / 缓存 Node.js runtime ──
 // 先拿到目标 Node，后续 npm install 全用它跑，保证 ABI 一致
-const NODE_VERSION = "v22.16.0";
+const NODE_VERSION = "v24.15.0";
+const NODE_RUNTIME_SHA256 = {
+  [`node-${NODE_VERSION}-darwin-arm64.tar.gz`]: "372331b969779ab5d15b949884fc6eaf88d5afe87bde8ba881d6400b9100ffc4",
+  [`node-${NODE_VERSION}-darwin-x64.tar.gz`]: "ffd5ee293467927f3ee731a553eb88fd1f48cf74eebc2d74a6babe4af228673b",
+  [`node-${NODE_VERSION}-linux-arm64.tar.gz`]: "73afc234d558c24919875f51c2d1ea002a2ada4ea6f83601a383869fefa64eed",
+  [`node-${NODE_VERSION}-linux-x64.tar.gz`]: "44836872d9aec49f1e6b52a9a922872db9a2b02d235a616a5681b6a85fec8d89",
+  [`node-${NODE_VERSION}-win-x64.zip`]: "cc5149eabd53779ce1e7bdc5401643622d0c7e6800ade18928a767e940bb0e62",
+};
 const cacheDir = path.join(ROOT, ".cache", "node-runtime");
 fs.mkdirSync(cacheDir, { recursive: true });
 
@@ -99,10 +109,28 @@ const cachedNpmCli = isWin
   ? path.join(cacheDir, nodeDirName, "node_modules", "npm", "bin", "npm-cli.js")
   : path.join(cacheDir, nodeDirName, "lib", "node_modules", "npm", "bin", "npm-cli.js");
 
+function verifyNodeRuntimeArchive(archivePath, archiveName) {
+  const expected = NODE_RUNTIME_SHA256[archiveName];
+  if (!expected) {
+    throw new Error(`[build-server] missing pinned Node runtime checksum for ${archiveName}`);
+  }
+  const actual = createHash("sha256").update(fs.readFileSync(archivePath)).digest("hex");
+  if (actual !== expected) {
+    try { fs.rmSync(archivePath, { force: true }); } catch {
+      // Best-effort cleanup; the checksum error below is the actionable failure.
+    }
+    throw new Error(
+      `[build-server] node runtime archive checksum mismatch for ${archiveName}: expected ${expected}, got ${actual}`,
+    );
+  }
+  console.log(`[build-server] Node.js runtime checksum verified: ${archiveName}`);
+}
+
 if (!fs.existsSync(cachedNodeBin)) {
   const url = `https://nodejs.org/dist/${NODE_VERSION}/${filename}`;
   console.log(`[build-server] downloading Node.js ${NODE_VERSION} for ${platform}-${arch}...`);
-  execSync(`curl -L -o "${cachedArchive}" "${url}"`, { stdio: "inherit" });
+  execSync(`curl --fail --location --show-error -o "${cachedArchive}" "${url}"`, { stdio: "inherit" });
+  verifyNodeRuntimeArchive(cachedArchive, filename);
 
   if (isWin) {
     execSync(`powershell -command "Expand-Archive -Path '${cachedArchive}' -DestinationPath '${cacheDir}' -Force"`, { stdio: "inherit" });
@@ -110,7 +138,9 @@ if (!fs.existsSync(cachedNodeBin)) {
     execSync(`tar xzf "${cachedArchive}" -C "${cacheDir}"`, { stdio: "inherit" });
   }
 
-  try { fs.unlinkSync(cachedArchive); } catch {}
+  try { fs.unlinkSync(cachedArchive); } catch {
+    // Best-effort cache cleanup after a verified extraction.
+  }
   console.log("[build-server] Node.js runtime cached");
 } else {
   console.log(`[build-server] using cached Node.js ${NODE_VERSION}`);
@@ -159,6 +189,28 @@ function ensureNodePtySpawnHelperExecutable(baseDir) {
   }
 }
 
+function runJiebaRuntimeSmokeIfNeeded() {
+  if (!externalPkg.dependencies["@node-rs/jieba"]) return;
+  const smokeScript = path.join(outDir, ".jieba-smoke.mjs");
+  fs.writeFileSync(smokeScript, buildJiebaRuntimeSmokeScript());
+  try {
+    runWithTargetNode(path.basename(smokeScript));
+  } finally {
+    fs.rmSync(smokeScript, { force: true });
+  }
+}
+
+function runBetterSqliteRuntimeSmokeIfNeeded() {
+  if (!externalPkg.dependencies["better-sqlite3"]) return;
+  const smokeScript = path.join(outDir, ".better-sqlite3-smoke.mjs");
+  fs.writeFileSync(smokeScript, buildBetterSqliteRuntimeSmokeScript());
+  try {
+    runWithTargetNode(path.basename(smokeScript));
+  } finally {
+    fs.rmSync(smokeScript, { force: true });
+  }
+}
+
 // ── 2. Vite bundle ──
 // 用系统 Node 跑 Vite（构建时工具，不涉及 native addon ABI）
 // 产出到 dist-server-bundle/，然后复制到 outDir/bundle/
@@ -176,7 +228,7 @@ console.log("[build-server] Vite bundle copied to bundle/");
 
 console.log("[build-server] running CLI bundle...");
 execSync(
-  `npx esbuild "${path.join(ROOT, "cli", "entry.js")}" --bundle --platform=node --format=esm --target=node22 --external:ws --outfile="${path.join(bundleOutDir, "cli.js")}"`,
+  `npx esbuild "${path.join(ROOT, "cli", "entry.ts")}" --bundle --platform=node --format=esm --target=node24 --external:ws --outfile="${path.join(bundleOutDir, "cli.js")}"`,
   {
     cwd: ROOT,
     stdio: "inherit",
@@ -184,7 +236,7 @@ execSync(
 );
 console.log("[build-server] CLI bundle copied to bundle/cli.js");
 
-fs.copyFileSync(path.join(ROOT, "server", "bootstrap.js"), path.join(outDir, "bootstrap.js"));
+fs.copyFileSync(path.join(ROOT, "server", "bootstrap.ts"), path.join(outDir, "bootstrap.js"));
 console.log("[build-server] bootstrap copied");
 
 // ── 3. 复制运行时数据文件 ──
@@ -236,19 +288,16 @@ if (fs.existsSync(skillsSrc)) {
   console.log("[build-server]   skills2set/");
 }
 
-// i18n locales（server/i18n.js 通过 fromRoot("desktop","src","locales") 引用）
+// i18n locales（lib/i18n.js 通过 fromRoot("desktop","src","locales") 引用）
 const localesSrc = path.join(ROOT, "desktop", "src", "locales");
 fs.mkdirSync(path.join(outDir, "desktop", "src", "locales"), { recursive: true });
 fs.cpSync(localesSrc, path.join(outDir, "desktop", "src", "locales"), { recursive: true });
 console.log("[build-server]   desktop/src/locales/");
 
-// Theme CSS（server/routes/plugins.js theme.css 端点通过 fromRoot("desktop","src","themes") 引用）
-const themesSrc = path.join(ROOT, "desktop", "src", "themes");
-if (fs.existsSync(themesSrc)) {
-  fs.mkdirSync(path.join(outDir, "desktop", "src", "themes"), { recursive: true });
-  fs.cpSync(themesSrc, path.join(outDir, "desktop", "src", "themes"), { recursive: true });
-  console.log("[build-server]   desktop/src/themes/");
-}
+// Theme CSS：不再单独复制 desktop/src/themes/。
+// dist-renderer/themes/ 由 copyServerRuntimeAssets 复制（内容完全一致），
+// server theme.css 端点有 fallback：先试 src/themes，未命中时自动走 dist-renderer/themes。
+// 省去一份 ~7MB 的重复 CSS。
 
 // 角色卡导入/导出预览由 server 读取默认头像、卡背和 Yuan 图标。
 // PWA /mobile/* 静态文件也由独立 server 进程读取。
@@ -264,16 +313,10 @@ if (fs.existsSync(pluginsSrc)) {
   console.log("[build-server]   plugins/");
 }
 
-const marketplaceIndexSrc = path.join(ROOT, "marketplace.json");
-if (fs.existsSync(marketplaceIndexSrc)) {
-  fs.copyFileSync(marketplaceIndexSrc, path.join(outDir, "marketplace.json"));
-  console.log("[build-server]   marketplace.json");
-}
-
-const pluginMarketplaceSrc = path.join(ROOT, "plugin-marketplace");
-if (fs.existsSync(pluginMarketplaceSrc)) {
-  fs.cpSync(pluginMarketplaceSrc, path.join(outDir, "plugin-marketplace"), { recursive: true });
-  console.log("[build-server]   plugin-marketplace/");
+// 内置插件以源码形式动态 import。插件跨出 plugins/ 引用宿主侧共享运行期模块时，
+// 这些模块必须按原相对路径落到 packaged server root，否则开发环境和安装包会分裂。
+for (const copiedDependency of await copyBundledPluginRuntimeDependencies({ rootDir: ROOT, outDir })) {
+  console.log(`[build-server]   ${copiedDependency}`);
 }
 
 console.log("[build-server] resource files copied");
@@ -307,6 +350,20 @@ for (const ext of viteExternals) {
   }
 }
 
+const pluginPackageDeps = await collectBundledPluginPackageDependencies({ rootDir: ROOT });
+for (const packageName of pluginPackageDeps) {
+  if (deps[packageName]) {
+    externalDeps[packageName] = deps[packageName];
+  }
+}
+const undeclaredPluginDeps = pluginPackageDeps.filter((packageName) => !deps[packageName]);
+if (undeclaredPluginDeps.length > 0) {
+  throw new Error(
+    "[build-server] bundled plugin imports npm packages missing from root dependencies: "
+      + undeclaredPluginDeps.join(", "),
+  );
+}
+
 console.log(`[build-server] derived external deps: ${Object.keys(externalDeps).join(", ")}`);
 
 const rootLock = JSON.parse(fs.readFileSync(path.join(ROOT, "package-lock.json"), "utf-8"));
@@ -334,7 +391,7 @@ fs.writeFileSync(
 // package.json 中的 server external 依赖来自根 lockfile 的精确版本，避免
 // CI fresh install 把直接 external 依赖解析到尚未验证的新版本。
 console.log("[build-server] installing external dependencies...");
-runWithTargetNode(`"${cachedNpmCli}" install --omit=dev --no-audit --no-fund`);
+runWithTargetNode(`"${cachedNpmCli}" install --omit=dev --no-audit --no-fund --ignore-scripts=false`);
 ensureNodePtySpawnHelperExecutable(outDir);
 
 // ── 5b. 验证所有 Vite external 在 node_modules 中可达 ──
@@ -391,117 +448,6 @@ function removeBinDirs(nmDir) {
 }
 removeBinDirs(path.join(outDir, "node_modules"));
 
-function pruneBundledNodeModules(nmDir) {
-  const removableDirNames = new Set([
-    ".github",
-    ".vscode",
-    "benchmark",
-    "benchmarks",
-    "coverage",
-    "docs",
-    "example",
-    "examples",
-    "test",
-    "tests",
-    "__tests__",
-  ]);
-  const removableSuffixes = [
-    ".d.ts",
-    ".d.ts.map",
-    ".map",
-    ".pdb",
-    ".tsbuildinfo",
-  ];
-  let removedFiles = 0;
-  let removedDirs = 0;
-  let removedSize = 0;
-
-  function removeFile(filePath) {
-    try {
-      const stat = fs.statSync(filePath);
-      fs.rmSync(filePath, { force: true });
-      removedFiles++;
-      removedSize += stat.size || 0;
-    } catch {}
-  }
-
-  function removeDir(dirPath) {
-    try {
-      const stack = [dirPath];
-      while (stack.length > 0) {
-        const current = stack.pop();
-        let entries = [];
-        try {
-          entries = fs.readdirSync(current, { withFileTypes: true });
-        } catch {
-          continue;
-        }
-        for (const entry of entries) {
-          const full = path.join(current, entry.name);
-          if (entry.isDirectory()) {
-            stack.push(full);
-          } else if (entry.isFile()) {
-            try {
-              removedSize += fs.statSync(full).size || 0;
-            } catch {}
-          }
-        }
-      }
-      fs.rmSync(dirPath, { recursive: true, force: true });
-      removedDirs++;
-    } catch {}
-  }
-
-  function walk(dirPath) {
-    let entries;
-    try {
-      entries = fs.readdirSync(dirPath, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const entry of entries) {
-      const full = path.join(dirPath, entry.name);
-      if (entry.isDirectory()) {
-        if (removableDirNames.has(entry.name.toLowerCase())) {
-          removeDir(full);
-          continue;
-        }
-        walk(full);
-      } else if (entry.isFile()) {
-        const lower = entry.name.toLowerCase();
-        if (removableSuffixes.some((suffix) => lower.endsWith(suffix))) {
-          removeFile(full);
-        }
-      }
-    }
-  }
-
-  const nodePtyDir = path.join(nmDir, "node-pty");
-  if (fs.existsSync(nodePtyDir)) {
-    for (const rel of ["deps", "src", "third_party", "typings"]) {
-      removeDir(path.join(nodePtyDir, rel));
-    }
-    const keepPrebuild = `${platform}-${arch}`;
-    const prebuildsDir = path.join(nodePtyDir, "prebuilds");
-    let entries = [];
-    try {
-      entries = fs.readdirSync(prebuildsDir, { withFileTypes: true });
-    } catch {}
-    for (const entry of entries) {
-      if (entry.isDirectory() && entry.name !== keepPrebuild) {
-        removeDir(path.join(prebuildsDir, entry.name));
-      }
-    }
-  }
-
-  walk(nmDir);
-  const MB = (n) => (n / 1024 / 1024).toFixed(0);
-  console.log(
-    `[build-server] runtime prune: removed ${removedFiles} files and ${removedDirs} dirs (${MB(removedSize)}MB)`,
-  );
-}
-pruneBundledNodeModules(path.join(outDir, "node_modules"));
-
 console.log("[build-server] dependencies installed");
 
 // ── 8. @vercel/nft 追踪：只保留运行时实际需要的文件 ──
@@ -512,48 +458,10 @@ console.log("[build-server] running nft trace...");
 // nft 是 ESM，用动态 import
 const { nodeFileTrace } = await import("@vercel/nft");
 let fileList;
-const shouldRunNftTrace =
-  process.env.OPENZETCX_SKIP_NFT_TRACE !== "1" &&
-  (platform !== "win32" || process.env.OPENZETCX_ENABLE_WINDOWS_NFT_TRACE === "1");
-const NFT_PERMISSION_ERROR_CODES = new Set(["EACCES", "EPERM"]);
-function isNftPermissionError(err) {
-  return err && NFT_PERMISSION_ERROR_CODES.has(err.code);
-}
-if (!shouldRunNftTrace) {
-  console.warn("[build-server] nft trace skipped on Windows; keeping full server node_modules");
-  fileList = null;
-} else try {
+try {
   ({ fileList } = await nodeFileTrace(
     [path.join(outDir, "bundle", "index.js")],
-    {
-      base: outDir,
-      conditions: ["node", "import"],
-      fileIOConcurrency: 64,
-      readFile: async (filePath) => {
-        try {
-          return fs.promises.readFile(filePath, "utf8");
-        } catch (err) {
-          if (err?.code === "ENOENT" || err?.code === "EISDIR" || isNftPermissionError(err)) return null;
-          throw err;
-        }
-      },
-      readlink: async (filePath) => {
-        try {
-          return await fs.promises.readlink(filePath);
-        } catch (err) {
-          if (err?.code === "EINVAL" || err?.code === "ENOENT" || err?.code === "UNKNOWN" || isNftPermissionError(err)) return null;
-          throw err;
-        }
-      },
-      stat: async (filePath) => {
-        try {
-          return await fs.promises.stat(filePath);
-        } catch (err) {
-          if (err?.code === "ENOENT" || isNftPermissionError(err)) return null;
-          throw err;
-        }
-      },
-    },
+    { base: outDir, conditions: ["node", "import"] },
   ));
 } catch (e) {
   // Windows CI 上 nft 可能因用户目录不存在而报错，跳过裁剪
@@ -579,6 +487,9 @@ for (const packageName of Object.keys(externalPkg.dependencies)) {
   if (fs.existsSync(pkgDir)) {
     protectedDirs.add(pkgDir);
   }
+}
+for (const pkgDir of collectInstalledOptionalDependencyDirs(nmDir, Object.keys(externalPkg.dependencies))) {
+  protectedDirs.add(pkgDir);
 }
 
 if (protectedDirs.size > 0) {
@@ -628,6 +539,8 @@ try {
   console.error(err instanceof Error ? err.message : String(err));
   process.exit(1);
 }
+runBetterSqliteRuntimeSmokeIfNeeded();
+runJiebaRuntimeSmokeIfNeeded();
 
 // ── 8b. 删除 koffi 多余平台二进制 ──
 // koffi 带了 18 个平台的 .node 文件，nft 全部追踪到了（因为 require 路径指向包根）。
@@ -645,6 +558,44 @@ if (fs.existsSync(koffiBuilds)) {
   if (koffiRemoved > 0) {
     console.log(`[build-server] koffi: kept ${target}, removed ${koffiRemoved} other platform binaries`);
   }
+}
+
+// ── 8c. 删除 node-pty 多余平台 prebuilt ──
+// node-pty prebuilds/ 下按 {platform}-{arch} 放置 prebuilt 二进制。
+// macOS 包含 win32-x64/arm64 各 ~30MB（含 .pdb 调试符号），Windows 包含 darwin 的。
+// 运行时只从 prebuilds/{process.platform}-{process.arch}/ 加载，其余是死重。
+// 且非当前平台的 PE/ELF 二进制无法被 codesign 签名。
+const nodePtyPrebuilds = path.join(nmDir, "node-pty", "prebuilds");
+if (fs.existsSync(nodePtyPrebuilds)) {
+  const target = `${platform}-${arch}`;
+  let nodePtyRemoved = 0;
+  for (const entry of fs.readdirSync(nodePtyPrebuilds)) {
+    if (entry !== target) {
+      fs.rmSync(path.join(nodePtyPrebuilds, entry), { recursive: true, force: true });
+      nodePtyRemoved++;
+    }
+  }
+  if (nodePtyRemoved > 0) {
+    console.log(`[build-server] node-pty: kept prebuilds/${target}, removed ${nodePtyRemoved} other platform prebuilds`);
+  }
+}
+
+// ── 8d. 清理 npm 包中运行时不需要的大体积文件 ──
+// protectedDirs 跳过了 nft 裁剪，以下是已确认安全的手动清理。
+
+// @larksuiteoapi/node-sdk: types/ 是 ~15MB 的 .d.ts 类型声明，运行时不加载
+const larkTypes = path.join(nmDir, "@larksuiteoapi", "node-sdk", "types");
+if (fs.existsSync(larkTypes)) {
+  fs.rmSync(larkTypes, { recursive: true, force: true });
+  console.log("[build-server] cleanup: removed @larksuiteoapi/node-sdk/types/ (~15MB .d.ts)");
+}
+
+// exceljs: dist/ 是 ~21MB 的 browser bundle + source map。
+// Node.js 入口是 excel.js → lib/exceljs.nodejs.js，不经过 dist/
+const exceljsDist = path.join(nmDir, "exceljs", "dist");
+if (fs.existsSync(exceljsDist)) {
+  fs.rmSync(exceljsDist, { recursive: true, force: true });
+  console.log("[build-server] cleanup: removed exceljs/dist/ (~21MB browser bundle)");
 }
 
 // ── 9. 更新 package.json ──

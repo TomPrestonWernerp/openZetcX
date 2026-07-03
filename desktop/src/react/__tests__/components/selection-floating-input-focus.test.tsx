@@ -37,6 +37,7 @@ describe('SelectionFloatingInput focus behavior', () => {
       useStore.getState().setQuotedSelection({
         text: '选中文本',
         sourceTitle: 'doc',
+        sourceKind: 'preview',
         charCount: 4,
         anchorRect: { left: 300, right: 500, top: 120, bottom: 180, width: 200, height: 60 },
         updatedAt: 1,

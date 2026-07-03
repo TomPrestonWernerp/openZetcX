@@ -1,5 +1,5 @@
 /**
- * ChannelList — 集群列表渲染（DM + Group 分区）
+ * ChannelList — 频道列表渲染（DM + Group 分区）
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -13,7 +13,7 @@ import {
   toggleChannelsEnabled,
 } from '../../stores/channel-actions';
 import { toggleSidebar } from '../SidebarLayout';
-import { ContextMenu, type ContextMenuItem } from '../../ui';
+import { ContextMenu, Toggle, type ContextMenuItem } from '../../ui';
 import { ChannelWarningModal } from './ChannelWarningModal';
 import type { Channel, Agent } from '../../types';
 import {
@@ -81,7 +81,7 @@ export function MemberAvatar({ info, className }: { info: MemberInfo; className?
 }
 
 // ══════════════════════════════════════════════════════
-// ChannelListSidebar — 左侧边栏中的集群列表区块
+// ChannelListSidebar — 左侧边栏中的频道列表区块
 // ══════════════════════════════════════════════════════
 
 export function ChannelListSidebar() {
@@ -90,9 +90,10 @@ export function ChannelListSidebar() {
   const setChannelCreateOverlayVisible = useStore(s => s.setChannelCreateOverlayVisible);
   const [warningOpen, setWarningOpen] = useState(false);
 
-  const handleToggle = useCallback(() => {
-    const turningOn = !useStore.getState().channelsEnabled;
-    if (turningOn) {
+  const handleToggle = useCallback((next: boolean) => {
+    const current = useStore.getState().channelsEnabled;
+    if (current === undefined) return;
+    if (next) {
       setWarningOpen(true);
       return;
     }
@@ -122,9 +123,9 @@ export function ChannelListSidebar() {
         <span className="sidebar-title">{t('channel.tab')} <span className="beta-badge">Beta</span></span>
         <div className="sidebar-header-actions">
           <button
-            className={`sidebar-action-btn${!channelsEnabled ? ` ${styles.btnDisabled}` : ''}`}
+            className={`sidebar-action-btn${channelsEnabled !== true ? ` ${styles.btnDisabled}` : ''}`}
             title={t('channel.createTitle')}
-            disabled={!channelsEnabled}
+            disabled={channelsEnabled !== true}
             onClick={handleCreate}
           >
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -143,15 +144,12 @@ export function ChannelListSidebar() {
         <div className={styles.channelList}>
           <ChannelList />
         </div>
-        <div className={`${styles.channelDisabledOverlay}${channelsEnabled ? ` ${styles.channelDisabledOverlayHidden}` : ''}`}>
+        <div className={`${styles.channelDisabledOverlay}${channelsEnabled !== false ? ` ${styles.channelDisabledOverlayHidden}` : ''}`}>
           <span>{t('channel.disabled')}</span>
         </div>
         <div className={styles.channelToggleBar}>
           <span className={styles.channelToggleBarLabel}>{t('channel.toggleLabel')}</span>
-          <button
-            className={`hana-toggle${channelsEnabled ? ' on' : ''}`}
-            onClick={handleToggle}
-          ></button>
+          <Toggle on={channelsEnabled} onChange={handleToggle} />
         </div>
       </div>
       <ChannelWarningModal
@@ -164,7 +162,7 @@ export function ChannelListSidebar() {
 }
 
 // ══════════════════════════════════════════════════════
-// ChannelList — 集群列表
+// ChannelList — 频道列表
 // ══════════════════════════════════════════════════════
 
 export function ChannelList() {
@@ -175,8 +173,26 @@ export function ChannelList() {
   const userName = useStore((s) => s.userName);
   const userAvatarUrl = useStore((s) => s.userAvatarUrl);
   const currentAgentId = useStore((s) => s.currentAgentId);
+  const [dmCollapsed, setDmCollapsed] = useState(() => {
+    try {
+      return window.localStorage?.getItem('openzetcx-channel-dm-collapsed') === '1';
+    } catch {
+      return false;
+    }
+  });
 
   const agentMap = useMemo(() => buildAgentMap(agents), [agents]);
+  const toggleDmCollapsed = useCallback(() => {
+    setDmCollapsed(prev => {
+      const next = !prev;
+      try {
+        window.localStorage?.setItem('openzetcx-channel-dm-collapsed', next ? '1' : '0');
+      } catch {
+        // localStorage may be unavailable in privacy/test environments.
+      }
+      return next;
+    });
+  }, []);
 
   if (channels.length === 0) {
     return <div className="session-empty">{t('channel.empty')}</div>;
@@ -189,11 +205,19 @@ export function ChannelList() {
     <>
       {dms.length > 0 && (
         <>
-          <div className={styles.channelSectionLabel}>
+          <button
+            type="button"
+            className={`${styles.channelSectionLabel} ${styles.channelSectionButton}`}
+            onClick={toggleDmCollapsed}
+            aria-expanded={!dmCollapsed}
+          >
+            <span className={styles.channelSectionChevron} aria-hidden="true">
+              {dmCollapsed ? '>' : 'v'}
+            </span>
             <span>{t('channel.dmLabel')}</span>
             <span className={styles.channelSectionHint}>{t('channel.dmHint')}</span>
-          </div>
-          {dms.map((ch) => (
+          </button>
+          {!dmCollapsed && dms.map((ch) => (
             <ChannelItem
               key={ch.id}
               channel={ch}

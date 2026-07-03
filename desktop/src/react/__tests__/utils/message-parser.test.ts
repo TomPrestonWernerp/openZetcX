@@ -32,18 +32,18 @@ describe('parseMoodFromContent', () => {
     expect(result.text).toBe('Some text here.');
   });
 
-  it('解析 <pulse> 标签映射到 butter', () => {
+  it('解析 <pulse> 标签映射到 openZetcX', () => {
     const input = '<pulse>energetic</pulse>\nContent.';
     const result = parseMoodFromContent(input);
     expect(result.mood).toBe('energetic');
-    expect(result.yuan).toBe('butter');
+    expect(result.yuan).toBe('openZetcX');
   });
 
-  it('解析 <reflect> 标签映射到 ming', () => {
+  it('解析 <reflect> 标签映射到 openZetcX', () => {
     const input = '<reflect>pondering</reflect>\nContent.';
     const result = parseMoodFromContent(input);
     expect(result.mood).toBe('pondering');
-    expect(result.yuan).toBe('ming');
+    expect(result.yuan).toBe('openZetcX');
   });
 
   it('mood 内容去除代码块包裹', () => {
@@ -102,6 +102,29 @@ describe('parseUserAttachments', () => {
     expect(result.files[0].path).toBe('/Users/test/docs/note.md');
     expect(result.files[0].name).toBe('note.md');
     expect(result.files[0].isDirectory).toBe(false);
+  });
+
+  it('解析 SessionFile 机器上下文，并从正文隐藏', () => {
+    const input = [
+      '[SessionFile] {"fileId":"sf_report","sessionPath":"/sessions/main.jsonl","label":"报告2026.txt","kind":"attachment"}',
+      '请看这个',
+      '',
+      '[附件] 报告2026.txt',
+    ].join('\n');
+    const result = parseUserAttachments(input);
+
+    expect(result.text).toBe('请看这个');
+    expect(result.sessionFileRefs).toEqual([{
+      fileId: 'sf_report',
+      sessionPath: '/sessions/main.jsonl',
+      label: '报告2026.txt',
+      kind: 'attachment',
+    }]);
+    expect(result.files).toEqual([{
+      path: '报告2026.txt',
+      name: '报告2026.txt',
+      isDirectory: false,
+    }]);
   });
 
   it('解析内部 attached_image 标记为图片引用，并从正文隐藏', () => {
@@ -218,15 +241,15 @@ describe('extractToolDetail', () => {
 });
 
 describe('moodLabel', () => {
-  it('openZetcX 返回 MOOD', () => {
-    expect(moodLabel('openZetcX')).toContain('MOOD');
+  it('openZetcX 返回 Ta', () => {
+    expect(moodLabel('openZetcX')).toContain('Ta');
   });
 
-  it('butter 返回 PULSE', () => {
-    expect(moodLabel('butter')).toContain('PULSE');
+  it('旧模板名返回 Ta', () => {
+    expect(moodLabel('butter')).toContain('Ta');
   });
 
-  it('未知 yuan 降级为 MOOD', () => {
-    expect(moodLabel('unknown')).toContain('MOOD');
+  it('未知 yuan 降级为 Ta', () => {
+    expect(moodLabel('unknown')).toContain('Ta');
   });
 });

@@ -4,7 +4,7 @@
  * 行为：启动时静默检查 → 静默下载 → renderer 展示状态 → 页内触发安装。
  * Windows 安装时由 NSIS installer 负责关闭旧进程和覆盖安装；这里不等待 server
  * graceful shutdown，避免“重启更新”点击后长时间无反馈。
- * 集群：Stable（allowPrerelease=false）/ Preview（allowPrerelease=true）。
+ * 频道：Stable（allowPrerelease=false）/ Preview（allowPrerelease=true）。
  */
 const { ipcMain, app, BrowserWindow } = require("electron");
 const { autoUpdater } = require("electron-updater");
@@ -61,6 +61,14 @@ function logUpdate(message) {
     fs.mkdirSync(logDir, { recursive: true });
     fs.appendFileSync(path.join(logDir, "auto-update.log"), line + "\n", "utf-8");
   } catch {}
+}
+
+function isMissingLatestMetadataError(err) {
+  const message = err?.message || String(err || "");
+  return (
+    /\blatest(?:-mac)?\.ya?ml\b/i.test(message)
+    && /(cannot find|not found|missing|404)/i.test(message)
+  );
 }
 
 function getRendererWindows() {
@@ -255,7 +263,7 @@ function setupAutoUpdater() {
 
   autoUpdater.autoDownload = false;          // 由我们控制（磁盘空间检查后手动触发）
   autoUpdater.autoInstallOnAppQuit = false;  // 只在用户明确点击"重启更新"时安装
-  autoUpdater.allowPrerelease = false;       // 由集群控制
+  autoUpdater.allowPrerelease = false;       // 由频道控制
   autoUpdater.disableDifferentialDownload = true;
   if (process.platform === "win32") {
     autoUpdater.installDirectory = path.dirname(app.getPath("exe"));
@@ -324,6 +332,12 @@ function setupAutoUpdater() {
   });
 
   autoUpdater.on("error", (err) => {
+    if (isMissingLatestMetadataError(err)) {
+      logUpdate(`update metadata not ready; treating as no update available: ${err?.message || String(err)}`);
+      if (_updateState.status === "installing" && _setIsUpdating) _setIsUpdating(false);
+      setState({ status: "latest", error: null, progress: null });
+      return;
+    }
     // 下载中出错才设 error，idle/latest 状态的检查失败静默忽略
     if (_updateState.status !== "idle" && _updateState.status !== "latest") {
       logUpdate(`error: ${err?.message || String(err)}`);
@@ -344,7 +358,11 @@ function registerIpcHandlers() {
     try {
       await autoUpdater.checkForUpdates();
     } catch (err) {
-      setState({ status: "error", error: err?.message || String(err) });
+      if (isMissingLatestMetadataError(err)) {
+        setState({ status: "latest", error: null, progress: null });
+      } else {
+        setState({ status: "error", error: err?.message || String(err) });
+      }
     }
   });
 

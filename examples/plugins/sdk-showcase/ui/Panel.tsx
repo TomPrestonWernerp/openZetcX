@@ -42,7 +42,7 @@ function Panel() {
     <HanaThemeProvider mode={themeMode} theme={customTheme || (themeMode === 'hana' ? 'warm-paper' : undefined)}>
       <CardShell
         title={title}
-        description="A compact example using Hana plugin SDK packages."
+        description="A compact example using openZetcX plugin SDK packages."
         actions={<Button variant="ghost" onClick={() => hana.external.open('https://example.com')}>Open</Button>}
         footer={<Button variant="primary" onClick={copyTitle}>Copy title</Button>}
       >

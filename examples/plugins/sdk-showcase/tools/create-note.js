@@ -12,6 +12,14 @@ const tool = defineTool({
       body: { type: "string" }
     }
   },
+  sessionPermission: {
+    kind: "plugin_output",
+    describeSideEffect: () => ({
+      kind: "session_file_output",
+      summary: "Create a markdown file in plugin data and register it as SessionFile media.",
+      ruleId: "sdk-showcase-plugin-output",
+    }),
+  },
   async execute(input = {}, toolCtx) {
     if (!toolCtx.sessionPath) {
       throw new Error("sdk_showcase_create_note requires sessionPath");
@@ -23,7 +31,7 @@ const tool = defineTool({
     const title = typeof input.title === "string" && input.title.trim()
       ? input.title.trim()
       : "SDK Showcase Note";
-    const body = typeof input.body === "string" ? input.body : "Generated from the Hana plugin runtime SDK.";
+    const body = typeof input.body === "string" ? input.body : "Generated from the openZetcX plugin runtime SDK.";
     const safeName = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "note";
     const outputDir = path.join(toolCtx.dataDir, "notes");
     const filePath = path.join(outputDir, `${safeName}.md`);

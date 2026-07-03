@@ -7,10 +7,10 @@
 
 import { useState, useEffect, useRef } from 'react';
 import appIconUrl from '../../icon.png';
-import { getYuanVisual } from '../../../../shared/yuan-visuals.js';
+import { getYuanVisual } from '../../../../shared/yuan-visuals.ts';
 
 const DEFAULT_NAME = 'openZetcX';
-const DEFAULT_VISUAL = getYuanVisual('hanako');
+const DEFAULT_VISUAL = getYuanVisual('openZetcX');
 
 export function SplashApp() {
   const avatarSrc = appIconUrl;
@@ -32,7 +32,7 @@ export function SplashApp() {
     (async () => {
       let locale = 'zh';
       let name = DEFAULT_NAME;
-      let yuan = 'hanako';
+      let yuan = 'openZetcX';
 
       try {
         const hana = window.hana;

@@ -1,10 +1,3 @@
-/**
- * ChannelWarningModal — 集群启用确认对话框
- *
- * 替代原先命令式 DOM 构建的 showChannelWarning()，
- * 用 React 组件 + 全局 CSS class 渲染确认弹窗。
- */
-
 import { useI18n } from '../../hooks/use-i18n';
 import { Overlay } from '../../ui';
 

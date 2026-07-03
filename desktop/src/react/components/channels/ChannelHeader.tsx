@@ -1,5 +1,5 @@
 /**
- * ChannelHeader — 集群头部（名称、成员数、操作按钮）
+ * ChannelHeader — 频道头部（名称、成员数、操作按钮）
  */
 
 import { useCallback, useState } from 'react';

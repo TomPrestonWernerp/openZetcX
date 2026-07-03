@@ -13,13 +13,14 @@ vi.mock('../../services/websocket', () => ({
 describe('ComputerUseOverlay', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    window.t = ((key: string) => key) as typeof window.t;
     useStore.setState({
       currentSessionPath: '/session/a.jsonl',
       computerOverlayBySession: {},
     } as never);
   });
 
-  it('does not draw background action cursors in the openZetcX window', () => {
+  it('does not draw background action cursors in the Hanako window', () => {
     useStore.getState().setComputerOverlayForSession('/session/b.jsonl', {
       phase: 'running',
       action: 'click_element',
@@ -40,7 +41,7 @@ describe('ComputerUseOverlay', () => {
     expect(second.container.querySelector('[data-action="click_element"]')).toBeNull();
   });
 
-  it('does not draw done pulses in the openZetcX window', () => {
+  it('does not draw done pulses in the Hanako window', () => {
     useStore.getState().setComputerOverlayForSession('/session/a.jsonl', {
       phase: 'done',
       action: 'click_element',
@@ -79,7 +80,7 @@ describe('ComputerUseOverlay', () => {
     });
 
     render(<ComputerUseOverlay />);
-    expect(document.body.textContent).toContain('前台接管');
+    expect(document.body.textContent).toContain('computerUse.overlay.foregroundTakeover');
 
     fireEvent.keyDown(window, { key: 'Escape' });
 
@@ -90,7 +91,7 @@ describe('ComputerUseOverlay', () => {
     expect(useStore.getState().computerOverlayBySession['/session/a.jsonl']).toBeUndefined();
   });
 
-  it('keeps the openZetcX overlay reserved for foreground takeover UI only', () => {
+  it('keeps the Hanako overlay reserved for foreground takeover UI only', () => {
     useStore.getState().setComputerOverlayForSession('/session/a.jsonl', {
       phase: 'running',
       action: 'click_point',
