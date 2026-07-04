@@ -269,6 +269,7 @@ const LIB_TEMPLATE_DIRS = [
   "identity-templates",
   "ishiki-templates",
   "public-ishiki-templates",
+  "role-avatars",
   "yuan",
 ];
 for (const dir of LIB_TEMPLATE_DIRS) {

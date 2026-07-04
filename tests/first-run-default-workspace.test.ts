@@ -106,6 +106,36 @@ describe("first run default workspace", () => {
     expect(fs.readFileSync(path.join(developerDir, "avatars", "agent.png"), "utf-8")).toBe("avatar:developer");
   });
 
+  it("tops up all bundled defaults on legacy installs that only have old agents", async () => {
+    const legacyAgentIds = ["openZetcX", "standard", "xiaohuan", "xiaoshen", "xsheng"];
+    for (const agentId of legacyAgentIds) {
+      const agentDir = path.join(openZetcXHome, "agents", agentId);
+      fs.mkdirSync(agentDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(agentDir, "config.yaml"),
+        `agent:\n  name: ${agentId}\n  yuan: openZetcX\n`,
+        "utf-8",
+      );
+    }
+    const { ensureFirstRun } = await import("../core/first-run.ts");
+
+    const report = ensureFirstRun(openZetcXHome, productDir);
+
+    expect(report.invalidAgentDirs).toEqual([]);
+    expect(report.repairedDefaultAgent).toBe(true);
+    for (const role of OPENZETCX_DEFAULT_ROLE_PRESETS) {
+      const agentDir = path.join(openZetcXHome, "agents", role.id);
+      const cfg = YAML.load(fs.readFileSync(path.join(agentDir, "config.yaml"), "utf-8"));
+      expect(cfg.agent.name).toBe(role.name);
+      expect(cfg.agent.yuan).toBe("openZetcX");
+      expect(cfg.agent.rolePreset).toBe(role.id);
+      expect(fs.readFileSync(path.join(agentDir, "avatars", "agent.png"), "utf-8")).toBe(`avatar:${role.id}`);
+    }
+    for (const agentId of legacyAgentIds) {
+      expect(fs.existsSync(path.join(openZetcXHome, "agents", agentId, "config.yaml"))).toBe(true);
+    }
+  });
+
   it("repairs a half-initialized primary default role directory", async () => {
     fs.mkdirSync(path.join(openZetcXHome, "agents", "general", "memory"), { recursive: true });
     const { ensureFirstRun } = await import("../core/first-run.ts");

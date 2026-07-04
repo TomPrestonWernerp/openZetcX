@@ -108,6 +108,7 @@ export function ensureFirstRun(openZetcXHome, productDir): FirstRunReport {
   } else if (missingDefaultRoles.length > 0) {
     log.log("检测到缺少系统默认角色，正在补齐...");
     const seededAgentIds = seedDefaultAgents(agentsDir, productDir, missingDefaultRoles);
+    repairedDefaultAgent = true;
     for (const agentId of seededAgentIds) validAgentIds.add(agentId);
   }
   syncDefaultRoleMetadata(agentsDir, productDir, validAgentIds);

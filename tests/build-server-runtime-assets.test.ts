@@ -110,4 +110,10 @@ describe("server runtime assets", () => {
     expect(fs.existsSync(path.join(outDir, "desktop", "dist-renderer", "index.html"))).toBe(false);
     expect(fs.existsSync(path.join(outDir, "desktop", "dist-renderer", "modules", "legacy.js"))).toBe(false);
   });
+
+  it("bundles default role avatar templates for first-run seeding", () => {
+    const source = fs.readFileSync(path.resolve("scripts", "build-server.mjs"), "utf-8");
+
+    expect(source).toMatch(/LIB_TEMPLATE_DIRS[\s\S]*"role-avatars"/);
+  });
 });
