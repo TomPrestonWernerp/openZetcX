@@ -6,6 +6,7 @@
  * POST   /api/agents/switch       — 切换到指定助手
  * DELETE /api/agents/:id          — 删除助手
  * PUT    /api/agents/primary      — 设置主助手
+ * GET    /api/agents/role-presets/:id/avatar — 获取内置职业预设头像
  * GET    /api/agents/:id/avatar   — 获取指定助手的头像
  * POST   /api/agents/:id/avatar   — 上传指定助手的头像
  * GET    /api/agents/:id/config   — 读取指定助手的 config
@@ -383,6 +384,25 @@ export function createAgentsRoute(engine) {
   // ════════════════════════════
   //  头像
   // ════════════════════════════
+
+  route.get("/agents/role-presets/:id/avatar", async (c) => {
+    const avatarPath = resolveRolePresetAvatarPath(engine, c.req.param("id"));
+    if (!avatarPath) {
+      return c.json({ error: "role preset avatar not found" }, 404);
+    }
+
+    const ext = path.extname(avatarPath).slice(1).toLowerCase();
+    const mimeMap = { png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp" };
+    const contentType = mimeMap[ext];
+    if (!contentType) {
+      return c.json({ error: "unsupported role preset avatar" }, 415);
+    }
+
+    const buf = await fs.readFile(avatarPath);
+    c.header("Content-Type", contentType);
+    c.header("Cache-Control", "public, max-age=86400");
+    return c.body(buf);
+  });
 
   route.get("/agents/:id/avatar", async (c) => {
     const id = c.req.param("id");

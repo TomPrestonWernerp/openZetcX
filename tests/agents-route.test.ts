@@ -31,6 +31,24 @@ describe("agents route", () => {
     fs.mkdirSync(tempRoot, { recursive: true });
   });
 
+  it("serves bundled role preset avatars independently of created agents", async () => {
+    const productDir = path.join(tempRoot, "product");
+    const avatarDir = path.join(productDir, "role-avatars");
+    const avatarBytes = Buffer.from([137, 80, 78, 71]);
+    fs.mkdirSync(avatarDir, { recursive: true });
+    fs.writeFileSync(path.join(avatarDir, "developer.png"), avatarBytes);
+
+    const { createAgentsRoute } = await import("../server/routes/agents.ts");
+    const app = new Hono();
+    app.route("/api", createAgentsRoute({ productDir }));
+
+    const res = await app.request("/api/agents/role-presets/developer/avatar");
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toBe("image/png");
+    expect(Buffer.from(await res.arrayBuffer())).toEqual(avatarBytes);
+  });
+
   it("emits agent-created after creating an agent", async () => {
     const { createAgentsRoute } = await import("../server/routes/agents.ts");
     const app = new Hono();

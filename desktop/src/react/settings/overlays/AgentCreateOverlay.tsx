@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import type { SyntheticEvent } from 'react';
 import { useSettingsStore } from '../store';
-import { hanaFetch } from '../api';
+import { hanaFetch, hanaUrl } from '../api';
 import { t } from '../helpers';
 import { switchToAgent } from '../actions';
 import { Overlay } from '../../ui';
@@ -8,6 +9,7 @@ import styles from '../Settings.module.css';
 import { OPENZETCX_DEFAULT_ROLE_PRESETS } from '../../../../../shared/openzetcx-role-presets.ts';
 
 const OPENZETCX_YUAN = 'openZetcX';
+const FALLBACK_AVATAR = 'assets/openZetcX.png';
 
 const ROLE_PRESETS = OPENZETCX_DEFAULT_ROLE_PRESETS.map((preset) => ({
   id: preset.id,
@@ -40,6 +42,33 @@ export function AgentCreateOverlay() {
     setVisible(false);
     setError('');
   }, []);
+
+  const selectedPreset = ROLE_PRESETS.find((preset) => preset.id === rolePreset) || ROLE_PRESETS[0];
+
+  const selectRolePreset = (preset: (typeof ROLE_PRESETS)[number]) => {
+    const previousPresetName = selectedPreset.name;
+    setRolePreset(preset.id);
+    setName((current) => {
+      const normalized = current.trim();
+      return !normalized || normalized === previousPresetName ? preset.name : current;
+    });
+    setError('');
+  };
+
+  const presetAvatarUrl = (presetId: string) => {
+    if (!visible) return FALLBACK_AVATAR;
+    try {
+      return hanaUrl(`/api/agents/role-presets/${encodeURIComponent(presetId)}/avatar`);
+    } catch {
+      return FALLBACK_AVATAR;
+    }
+  };
+
+  const useFallbackAvatar = (event: SyntheticEvent<HTMLImageElement>) => {
+    const image = event.currentTarget;
+    image.onerror = null;
+    image.src = FALLBACK_AVATAR;
+  };
 
   const create = async () => {
     if (creating) return;
@@ -76,9 +105,6 @@ export function AgentCreateOverlay() {
       setCreating(false);
     }
   };
-
-  const types = t('yuan.types') || {};
-  const companyYuanMeta = (types as Record<string, { label?: string }>).openZetcX || {};
 
   return (
     <Overlay
@@ -119,27 +145,39 @@ export function AgentCreateOverlay() {
               type="button"
               className={`${styles['agent-create-role-card']} ${rolePreset === preset.id ? styles['agent-create-role-card-selected'] : ''}`}
               disabled={creating}
-              onClick={() => {
-                setRolePreset(preset.id);
-                if (!name.trim()) setName(preset.name);
-              }}
+              aria-pressed={rolePreset === preset.id}
+              aria-label={`${preset.name}：${preset.desc}`}
+              onClick={() => selectRolePreset(preset)}
             >
-              <span>{preset.name}</span>
-              <small>{preset.desc}</small>
+              <span className={styles['agent-create-role-avatar']}>
+                <img
+                  src={presetAvatarUrl(preset.id)}
+                  alt=""
+                  draggable={false}
+                  onError={useFallbackAvatar}
+                />
+              </span>
+              <span className={styles['agent-create-role-copy']}>
+                <strong>{preset.name}</strong>
+                <small>{preset.desc}</small>
+              </span>
             </button>
           ))}
         </div>
       </div>
       <div className={styles['settings-form-field']}>
-        <div className="yuan-selector">
-          <div className="yuan-chips">
-            <button className="yuan-chip selected" type="button" disabled={creating}>
-              <img className="yuan-chip-avatar" src="assets/openZetcX.png" draggable={false} />
-              <div className="yuan-chip-info">
-                <span className="yuan-chip-name">openZetc</span>
-                <span className="yuan-chip-desc">{companyYuanMeta.label || '基于 openZetcX 的统一人格'}</span>
-              </div>
-            </button>
+        <div className={styles['agent-create-role-preview']} aria-live="polite">
+          <span className={styles['agent-create-role-avatar']}>
+            <img
+              src={presetAvatarUrl(selectedPreset.id)}
+              alt=""
+              draggable={false}
+              onError={useFallbackAvatar}
+            />
+          </span>
+          <div>
+            <strong>{selectedPreset.name}</strong>
+            <span>{selectedPreset.desc}</span>
           </div>
         </div>
       </div>
