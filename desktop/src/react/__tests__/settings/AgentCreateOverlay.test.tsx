@@ -9,7 +9,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
   hanaFetch: vi.fn(),
-  hanaUrl: vi.fn((path: string) => `http://127.0.0.1:14500${path}?token=test`),
   showToast: vi.fn(),
   switchToAgent: vi.fn(),
 }));
@@ -21,7 +20,6 @@ vi.mock('../../settings/store', () => ({
 
 vi.mock('../../settings/api', () => ({
   hanaFetch: (...args: unknown[]) => mocks.hanaFetch(...args),
-  hanaUrl: (path: string) => mocks.hanaUrl(path),
 }));
 
 vi.mock('../../settings/actions', () => ({
@@ -52,7 +50,6 @@ vi.mock('../../ui', () => ({
 describe('AgentCreateOverlay role presets', () => {
   beforeEach(() => {
     mocks.hanaFetch.mockReset();
-    mocks.hanaUrl.mockClear();
     mocks.showToast.mockReset();
     mocks.switchToAgent.mockReset();
     mocks.hanaFetch.mockResolvedValue({
@@ -85,10 +82,16 @@ describe('AgentCreateOverlay role presets', () => {
     fireEvent.click(screen.getByRole('button', { name: /程序员/ }));
     const nameInput = screen.getByPlaceholderText('起个名字');
     expect(nameInput).toHaveValue('程序员');
-    expect(screen.getAllByText('程序员')).toHaveLength(2);
+    expect(screen.getAllByText('程序员')).toHaveLength(1);
     expect(
       screen.getByRole('button', { name: /程序员/ }).querySelector('img'),
-    ).toHaveAttribute('src', expect.stringContaining('/api/agents/role-presets/developer/avatar'));
+    ).toHaveAttribute('src', expect.stringContaining('/role-avatars/developer.png'));
+    expect(screen.getByText('openZetc')).toBeInTheDocument();
+    expect(screen.getByText('均衡的助手')).toBeInTheDocument();
+
+    const images = screen.getByRole('dialog').querySelectorAll('img');
+    expect(images).toHaveLength(11);
+    expect(images[10]).toHaveAttribute('src', 'assets/openZetcX.png');
 
     fireEvent.click(screen.getByRole('button', { name: /分析师/ }));
     expect(nameInput).toHaveValue('分析师');

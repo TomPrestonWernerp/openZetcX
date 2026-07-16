@@ -1,20 +1,42 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import type { SyntheticEvent } from 'react';
 import { useSettingsStore } from '../store';
-import { hanaFetch, hanaUrl } from '../api';
+import { hanaFetch } from '../api';
 import { t } from '../helpers';
 import { switchToAgent } from '../actions';
 import { Overlay } from '../../ui';
 import styles from '../Settings.module.css';
 import { OPENZETCX_DEFAULT_ROLE_PRESETS } from '../../../../../shared/openzetcx-role-presets.ts';
+import analystAvatar from '../../assets/role-avatars/analyst.png';
+import coordinatorAvatar from '../../assets/role-avatars/coordinator.png';
+import developerAvatar from '../../assets/role-avatars/developer.png';
+import documentSpecialistAvatar from '../../assets/role-avatars/document_specialist.png';
+import generalAvatar from '../../assets/role-avatars/general.png';
+import operationsAvatar from '../../assets/role-avatars/operations.png';
+import projectManagerAvatar from '../../assets/role-avatars/project_manager.png';
+import researcherAvatar from '../../assets/role-avatars/researcher.png';
+import reviewerAvatar from '../../assets/role-avatars/reviewer.png';
+import writerAvatar from '../../assets/role-avatars/writer.png';
 
 const OPENZETCX_YUAN = 'openZetcX';
-const FALLBACK_AVATAR = 'assets/openZetcX.png';
+const OPENZETCX_AVATAR = 'assets/openZetcX.png';
+const ROLE_AVATARS: Record<string, string> = {
+  general: generalAvatar,
+  developer: developerAvatar,
+  project_manager: projectManagerAvatar,
+  analyst: analystAvatar,
+  researcher: researcherAvatar,
+  writer: writerAvatar,
+  reviewer: reviewerAvatar,
+  document_specialist: documentSpecialistAvatar,
+  operations: operationsAvatar,
+  coordinator: coordinatorAvatar,
+};
 
 const ROLE_PRESETS = OPENZETCX_DEFAULT_ROLE_PRESETS.map((preset) => ({
   id: preset.id,
   name: preset.name,
   desc: preset.shortDescription,
+  avatar: ROLE_AVATARS[preset.id],
 }));
 
 export function AgentCreateOverlay() {
@@ -53,21 +75,6 @@ export function AgentCreateOverlay() {
       return !normalized || normalized === previousPresetName ? preset.name : current;
     });
     setError('');
-  };
-
-  const presetAvatarUrl = (presetId: string) => {
-    if (!visible) return FALLBACK_AVATAR;
-    try {
-      return hanaUrl(`/api/agents/role-presets/${encodeURIComponent(presetId)}/avatar`);
-    } catch {
-      return FALLBACK_AVATAR;
-    }
-  };
-
-  const useFallbackAvatar = (event: SyntheticEvent<HTMLImageElement>) => {
-    const image = event.currentTarget;
-    image.onerror = null;
-    image.src = FALLBACK_AVATAR;
   };
 
   const create = async () => {
@@ -151,10 +158,9 @@ export function AgentCreateOverlay() {
             >
               <span className={styles['agent-create-role-avatar']}>
                 <img
-                  src={presetAvatarUrl(preset.id)}
+                  src={preset.avatar}
                   alt=""
                   draggable={false}
-                  onError={useFallbackAvatar}
                 />
               </span>
               <span className={styles['agent-create-role-copy']}>
@@ -169,15 +175,14 @@ export function AgentCreateOverlay() {
         <div className={styles['agent-create-role-preview']} aria-live="polite">
           <span className={styles['agent-create-role-avatar']}>
             <img
-              src={presetAvatarUrl(selectedPreset.id)}
+              src={OPENZETCX_AVATAR}
               alt=""
               draggable={false}
-              onError={useFallbackAvatar}
             />
           </span>
           <div>
-            <strong>{selectedPreset.name}</strong>
-            <span>{selectedPreset.desc}</span>
+            <strong>openZetc</strong>
+            <span>均衡的助手</span>
           </div>
         </div>
       </div>
