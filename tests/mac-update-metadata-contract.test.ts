@@ -140,5 +140,7 @@ describe("macOS update metadata release contract", () => {
     expect(workflow).toContain('echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"');
     expect(workflow).toContain('echo "SKIP_NOTARIZE=true" >> "$GITHUB_ENV"');
     expect(workflow).toContain("runner.os == 'macOS' && env.MAC_SIGNING_AVAILABLE == 'true'");
+    expect(workflow).toContain('unset CSC_LINK CSC_KEY_PASSWORD CSC_KEYCHAIN');
+    expect(workflow).toContain('export CSC_IDENTITY_AUTO_DISCOVERY=false');
   });
 });

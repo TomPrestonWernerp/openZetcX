@@ -169,6 +169,15 @@ jobs:
         if: runner.os == 'macOS'
         run: |
           ulimit -n 65536
+          # GitHub substitutes an unset secret with an empty environment variable.
+          # electron-builder treats an empty CSC_LINK as a certificate path, so
+          # remove all signing inputs for the explicit unsigned fallback.
+          if [ "${MAC_SIGNING_AVAILABLE:-false}" != "true" ]; then
+            unset CSC_LINK CSC_KEY_PASSWORD CSC_KEYCHAIN
+            unset APPLE_ID APPLE_APP_SPECIFIC_PASSWORD APPLE_TEAM_ID
+            export CSC_IDENTITY_AUTO_DISCOVERY=false
+            export SKIP_NOTARIZE=true
+          fi
           npx electron-builder --mac dmg zip --${{ matrix.arch }} --publish never
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
