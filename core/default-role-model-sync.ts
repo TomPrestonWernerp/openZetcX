@@ -69,4 +69,3 @@ export function syncOpenZetcXRolePresetChatModels(
   }
   return updatedAgentIds;
 }
-
