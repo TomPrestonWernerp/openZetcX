@@ -173,10 +173,12 @@ export const OUTPUT_PRESETS = [
   { label: '64K', value: 65536 },
 ];
 
-const _ids = registry.getThemeIds();
+const _ids = registry.getAllUIOptions()
+  .map(option => option.id)
+  .filter(id => id !== registry.AUTO_OPTION.id);
 export const VALID_THEMES = [
   _ids[0],                    // warm-paper
   _ids[1],                    // midnight
   registry.AUTO_OPTION.id,    // auto (第 3 位，保持原顺序)
-  ..._ids.slice(2),           // high-contrast, grass-aroma, contemplation, absolutely, delve, deep-think, new-warm-paper
+  ..._ids.slice(2),           // 其余未隐藏主题
 ];

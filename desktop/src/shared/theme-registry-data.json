@@ -1,7 +1,8 @@
 {
   "storageKey": "hana-theme",
-  "defaultTheme": "warm-paper",
-  "autoLightDefault": "warm-paper",
+  "defaultTheme": "deep-think",
+  "defaultSelection": "auto",
+  "autoLightDefault": "deep-think",
   "autoDarkDefault": "midnight",
   "legacyThemeAliases": {
     "claude-design": "new-warm-paper"
@@ -9,6 +10,11 @@
   "paperTextureBlockedThemeIds": [
     "midnight",
     "midnight-contrast"
+  ],
+  "hiddenThemeIds": [
+    "high-contrast",
+    "grass-aroma",
+    "contemplation"
   ],
   "autoOption": {
     "id": "auto",

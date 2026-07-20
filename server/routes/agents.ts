@@ -51,6 +51,7 @@ import {
 } from "./provider-credentials.ts";
 import { mergeWorkspaceHistory } from "../../shared/workspace-history.ts";
 import { getOpenZetcXRolePreset } from "../../shared/openzetcx-role-presets.ts";
+import { syncOpenZetcXRolePresetChatModels } from "../../core/default-role-model-sync.ts";
 import {
   collectSecretPatchPaths,
   maskObjectSecrets,
@@ -671,6 +672,23 @@ export function createAgentsRoute(engine) {
       engine.invalidateAgentListCache();
       // 触发目标 agent 模块刷新 + prompt 重建
       await engine.updateConfig(agentPartial, { agentId: id });
+      const primaryAgentId = engine.listAgents().find((agent) => agent.isPrimary)?.id;
+      if (primaryAgentId === id && agentPartial.models?.chat) {
+        const syncedRoleAgentIds = syncOpenZetcXRolePresetChatModels(
+          engine.agentsDir,
+          id,
+          agentPartial.models.chat,
+        );
+        for (const syncedAgentId of syncedRoleAgentIds) {
+          await engine.updateConfig(
+            { models: { chat: agentPartial.models.chat } },
+            { agentId: syncedAgentId },
+          );
+        }
+        if (syncedRoleAgentIds.length > 0) {
+          engine.invalidateAgentListCache();
+        }
+      }
       // 记忆总开关：无论是否 active agent，都需要刷新运行时状态（因为 ticker 后台在跑）
       if (agentPartial.memory && "enabled" in agentPartial.memory) {
         engine.setMemoryMasterEnabled(id, agentPartial.memory.enabled !== false);

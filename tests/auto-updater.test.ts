@@ -6,6 +6,7 @@ const mockAutoUpdater = {
   autoDownload: true,
   autoInstallOnAppQuit: true,
   allowPrerelease: false,
+  forceDevUpdateConfig: false,
   installDirectory: undefined,
   checkForUpdates: vi.fn().mockResolvedValue({}),
   downloadUpdate: vi.fn().mockResolvedValue(null),
@@ -16,12 +17,13 @@ const mockAutoUpdater = {
 
 const mockWindows = [];
 let mockExePath = "/Applications/openZetcX.app/Contents/MacOS/openZetcX";
+let mockIsPackaged = true;
 
 vi.mock("electron", () => ({
   ipcMain: { handle: vi.fn() },
   BrowserWindow: { getAllWindows: vi.fn(() => mockWindows) },
   app: {
-    isPackaged: true,
+    get isPackaged() { return mockIsPackaged; },
     getVersion: () => "1.0.0",
     getPath: (name) => {
       if (name === "exe") return mockExePath;
@@ -54,8 +56,10 @@ describe("auto-updater", () => {
     mockAutoUpdater.autoDownload = true;
     mockAutoUpdater.autoInstallOnAppQuit = true;
     mockAutoUpdater.allowPrerelease = false;
+    mockAutoUpdater.forceDevUpdateConfig = false;
     mockAutoUpdater.installDirectory = undefined;
     mockExePath = "/Applications/openZetcX.app/Contents/MacOS/openZetcX";
+    mockIsPackaged = true;
 
     ({ ipcMain } = await import("electron"));
     ipcMain.handle.mockImplementation((name, handler) => {
@@ -91,6 +95,22 @@ describe("auto-updater", () => {
     initWithMockWindow();
     expect(mockAutoUpdater.autoDownload).toBe(false);
     expect(mockAutoUpdater.autoInstallOnAppQuit).toBe(false);
+    expect(mockAutoUpdater.forceDevUpdateConfig).toBe(false);
+  });
+
+  it("enables real GitHub release checks in development builds", async () => {
+    mockIsPackaged = false;
+    vi.resetModules();
+    mod = await import("../desktop/auto-updater.cjs");
+
+    initWithMockWindow();
+
+    expect(mockAutoUpdater.forceDevUpdateConfig).toBe(true);
+    expect(mockAutoUpdater.setFeedURL).toHaveBeenCalledWith(expect.objectContaining({
+      provider: "github",
+      owner: "TomPrestonWernerp",
+      repo: "openZetcX",
+    }));
   });
 
   it("pins the NSIS install directory to the running exe directory on Windows", async () => {
@@ -114,9 +134,10 @@ describe("auto-updater", () => {
     if (handlers["update-available"]) {
       await handlers["update-available"]({ version: "2.0.0", releaseNotes: "New features" });
     }
+    await vi.waitFor(() => expect(mockAutoUpdater.downloadUpdate).toHaveBeenCalledTimes(1));
     const state = mod.getState();
     expect(state.version).toBe("2.0.0");
-    expect(["available", "downloading", "error"]).toContain(state.status);
+    expect(["downloading", "downloaded", "error"]).toContain(state.status);
   });
 
   it("should map update-not-available to latest state", () => {

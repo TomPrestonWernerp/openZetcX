@@ -7,9 +7,11 @@ describe('theme-registry', () => {
 
     expect(esm.STORAGE_KEY).toBe(reg.STORAGE_KEY);
     expect(esm.DEFAULT_THEME).toBe(reg.DEFAULT_THEME);
+    expect(esm.DEFAULT_SELECTION).toBe(reg.DEFAULT_SELECTION);
     expect(esm.AUTO_LIGHT_DEFAULT).toBe(reg.AUTO_LIGHT_DEFAULT);
     expect(esm.AUTO_DARK_DEFAULT).toBe(reg.AUTO_DARK_DEFAULT);
     expect(esm.PAPER_TEXTURE_BLOCKED_THEME_IDS).toEqual(reg.PAPER_TEXTURE_BLOCKED_THEME_IDS);
+    expect(esm.HIDDEN_THEME_IDS).toEqual(reg.HIDDEN_THEME_IDS);
     expect(esm.AUTO_OPTION).toEqual(reg.AUTO_OPTION);
     expect(esm.LEGACY_THEME_ALIASES).toEqual(reg.LEGACY_THEME_ALIASES);
     expect(esm.THEMES).toEqual(reg.THEMES);
@@ -26,8 +28,10 @@ describe('theme-registry', () => {
       expect(reg.STORAGE_KEY).toBe('hana-theme');
     });
 
-    it('DEFAULT_THEME 是 "warm-paper"', () => {
-      expect(reg.DEFAULT_THEME).toBe('warm-paper');
+    it('默认选择跟随系统，浅色系统使用环保蓝主题', () => {
+      expect(reg.DEFAULT_SELECTION).toBe('auto');
+      expect(reg.DEFAULT_THEME).toBe('deep-think');
+      expect(reg.AUTO_LIGHT_DEFAULT).toBe('deep-think');
     });
 
     it('AUTO_LIGHT_DEFAULT / AUTO_DARK_DEFAULT 都在 THEMES 表里', () => {
@@ -103,16 +107,19 @@ describe('theme-registry', () => {
       expect(reg.migrateSavedTheme('auto')).toBe('auto');
     });
 
-    it('null / undefined / 空串 → DEFAULT_THEME', () => {
-      expect(reg.migrateSavedTheme(null)).toBe('warm-paper');
-      expect(reg.migrateSavedTheme(undefined)).toBe('warm-paper');
-      expect(reg.migrateSavedTheme('')).toBe('warm-paper');
+    it('null / undefined / 空串 → DEFAULT_SELECTION', () => {
+      expect(reg.migrateSavedTheme(null)).toBe('auto');
+      expect(reg.migrateSavedTheme(undefined)).toBe('auto');
+      expect(reg.migrateSavedTheme('')).toBe('auto');
     });
 
-    it('非法值 → DEFAULT_THEME', () => {
-      expect(reg.migrateSavedTheme('cyberpunk')).toBe('warm-paper');
-      expect(reg.migrateSavedTheme(42)).toBe('warm-paper');
-      expect(reg.migrateSavedTheme({})).toBe('warm-paper');
+    it('非法值或已隐藏主题 → DEFAULT_SELECTION', () => {
+      expect(reg.migrateSavedTheme('cyberpunk')).toBe('auto');
+      expect(reg.migrateSavedTheme(42)).toBe('auto');
+      expect(reg.migrateSavedTheme({})).toBe('auto');
+      for (const hiddenId of reg.HIDDEN_THEME_IDS) {
+        expect(reg.migrateSavedTheme(hiddenId)).toBe('auto');
+      }
     });
   });
 
@@ -121,8 +128,8 @@ describe('theme-registry', () => {
       expect(reg.resolveSavedTheme('midnight', true)).toEqual({
         stored: 'midnight', concrete: 'midnight',
       });
-      expect(reg.resolveSavedTheme('grass-aroma', false)).toEqual({
-        stored: 'grass-aroma', concrete: 'grass-aroma',
+      expect(reg.resolveSavedTheme('coral', false)).toEqual({
+        stored: 'coral', concrete: 'coral',
       });
     });
 
@@ -132,21 +139,21 @@ describe('theme-registry', () => {
       });
     });
 
-    it('auto + 浅色 → { stored: auto, concrete: warm-paper }', () => {
+    it('auto + 浅色 → { stored: auto, concrete: deep-think }', () => {
       expect(reg.resolveSavedTheme('auto', false)).toEqual({
-        stored: 'auto', concrete: 'warm-paper',
+        stored: 'auto', concrete: 'deep-think',
       });
     });
 
-    it('null + 浅色 → DEFAULT_THEME', () => {
+    it('null + 浅色 → 默认跟随系统', () => {
       expect(reg.resolveSavedTheme(null, false)).toEqual({
-        stored: 'warm-paper', concrete: 'warm-paper',
+        stored: 'auto', concrete: 'deep-think',
       });
     });
 
-    it('非法值 + 深色 → DEFAULT_THEME（不走 auto）', () => {
+    it('非法值 + 深色 → 默认跟随系统', () => {
       expect(reg.resolveSavedTheme('nope', true)).toEqual({
-        stored: 'warm-paper', concrete: 'warm-paper',
+        stored: 'auto', concrete: 'midnight',
       });
     });
   });
@@ -156,12 +163,15 @@ describe('theme-registry', () => {
       expect(reg.getThemeIds().sort()).toEqual(Object.keys(reg.THEMES).sort());
     });
 
-    it('getAllUIOptions 含 11 个主题 + auto', () => {
+    it('getAllUIOptions 隐藏三个已删除主题并保留 auto', () => {
       const opts = reg.getAllUIOptions();
-      expect(opts).toHaveLength(12);
+      expect(opts).toHaveLength(9);
       expect(opts.map(o => o.id).sort()).toContain('auto');
       expect(opts.map(o => o.id).sort()).toContain('warm-paper');
       expect(opts.map(o => o.id).sort()).toContain('coral');
+      for (const hiddenId of reg.HIDDEN_THEME_IDS) {
+        expect(opts.map(o => o.id)).not.toContain(hiddenId);
+      }
       opts.forEach(o => {
         expect(o).toHaveProperty('id');
         expect(o).toHaveProperty('i18nName');

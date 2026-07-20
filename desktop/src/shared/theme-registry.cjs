@@ -11,10 +11,12 @@ const data = require("./theme-registry-data.json");
 
 const STORAGE_KEY = data.storageKey;
 const DEFAULT_THEME = data.defaultTheme;
+const DEFAULT_SELECTION = data.defaultSelection;
 const AUTO_LIGHT_DEFAULT = data.autoLightDefault;
 const AUTO_DARK_DEFAULT = data.autoDarkDefault;
 const LEGACY_THEME_ALIASES = Object.freeze({ ...data.legacyThemeAliases });
 const PAPER_TEXTURE_BLOCKED_THEME_IDS = Object.freeze([...data.paperTextureBlockedThemeIds]);
+const HIDDEN_THEME_IDS = Object.freeze([...data.hiddenThemeIds]);
 const AUTO_OPTION = Object.freeze({ ...data.autoOption });
 
 const THEMES = Object.freeze(Object.fromEntries(
@@ -35,9 +37,10 @@ for (const [id, entry] of Object.entries(THEMES)) {
 /** 合法值原样返回（含 'auto'），非法 / null / undefined → DEFAULT_THEME。不主动覆写 localStorage。 */
 function migrateSavedTheme(raw) {
   if (raw === "auto") return "auto";
-  if (typeof raw !== "string" || raw.length === 0) return DEFAULT_THEME;
-  if (LEGACY_THEME_ALIASES[raw]) return LEGACY_THEME_ALIASES[raw];
-  return THEMES[raw] ? raw : DEFAULT_THEME;
+  if (typeof raw !== "string" || raw.length === 0) return DEFAULT_SELECTION;
+  const migrated = LEGACY_THEME_ALIASES[raw] || (THEMES[raw] ? raw : null);
+  if (!migrated || HIDDEN_THEME_IDS.includes(migrated)) return DEFAULT_SELECTION;
+  return migrated;
 }
 
 /** 输入：localStorage 原始值 + 系统深色？
@@ -55,7 +58,7 @@ function getThemeIds() {
 }
 
 function getAllUIOptions() {
-  const themeOpts = getThemeIds().map((id) => ({
+  const themeOpts = getThemeIds().filter((id) => !HIDDEN_THEME_IDS.includes(id)).map((id) => ({
     id,
     i18nName: THEMES[id].i18nName,
     i18nMode: THEMES[id].i18nMode,
@@ -70,9 +73,11 @@ function isPaperTextureBlockedTheme(themeId) {
 module.exports = {
   STORAGE_KEY,
   DEFAULT_THEME,
+  DEFAULT_SELECTION,
   AUTO_LIGHT_DEFAULT,
   AUTO_DARK_DEFAULT,
   PAPER_TEXTURE_BLOCKED_THEME_IDS,
+  HIDDEN_THEME_IDS,
   AUTO_OPTION,
   LEGACY_THEME_ALIASES,
   THEMES,

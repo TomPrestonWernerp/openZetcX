@@ -234,6 +234,7 @@ describe("AgentManager.createAgent default skills.enabled", () => {
     const ishiki = fs.readFileSync(path.join(agentsDir, newId, "ishiki.md"), "utf-8");
 
     expect(cfg.agent.yuan).toBe("openZetcX");
+    expect(cfg.agent.rolePreset).toBe("developer");
     expect(identity).toContain("# DevAgent");
     expect(identity).toContain("openZetcX");
     expect(identity).toContain("程序员助手");

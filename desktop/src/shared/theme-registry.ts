@@ -23,10 +23,12 @@ export interface ResolvedTheme {
 
 export const STORAGE_KEY = data.storageKey;
 export const DEFAULT_THEME = data.defaultTheme as ThemeId;
+export const DEFAULT_SELECTION = data.defaultSelection as StoredThemeSelection;
 export const AUTO_LIGHT_DEFAULT = data.autoLightDefault as ThemeId;
 export const AUTO_DARK_DEFAULT = data.autoDarkDefault as ThemeId;
 export const LEGACY_THEME_ALIASES = Object.freeze({ ...data.legacyThemeAliases }) as Readonly<Record<string, ThemeId>>;
 export const PAPER_TEXTURE_BLOCKED_THEME_IDS = Object.freeze([...data.paperTextureBlockedThemeIds]) as ReadonlyArray<ThemeId>;
+export const HIDDEN_THEME_IDS = Object.freeze([...data.hiddenThemeIds]) as ReadonlyArray<ThemeId>;
 export const AUTO_OPTION = Object.freeze({ ...data.autoOption }) as ThemeUIOption;
 
 export const THEMES = Object.freeze(Object.fromEntries(
@@ -44,9 +46,10 @@ for (const [id, entry] of Object.entries(THEMES)) {
 
 export function migrateSavedTheme(raw: unknown): StoredThemeSelection {
   if (raw === 'auto') return 'auto';
-  if (typeof raw !== 'string' || raw.length === 0) return DEFAULT_THEME;
-  if (LEGACY_THEME_ALIASES[raw]) return LEGACY_THEME_ALIASES[raw];
-  return raw in THEMES ? raw as ThemeId : DEFAULT_THEME;
+  if (typeof raw !== 'string' || raw.length === 0) return DEFAULT_SELECTION;
+  const migrated = LEGACY_THEME_ALIASES[raw] ?? (raw in THEMES ? raw as ThemeId : null);
+  if (!migrated || HIDDEN_THEME_IDS.includes(migrated)) return DEFAULT_SELECTION;
+  return migrated;
 }
 
 export function resolveSavedTheme(raw: unknown, isDark: boolean): ResolvedTheme {
@@ -62,7 +65,7 @@ export function getThemeIds(): ThemeId[] {
 }
 
 export function getAllUIOptions(): ThemeUIOption[] {
-  const themeOpts = getThemeIds().map((id) => ({
+  const themeOpts = getThemeIds().filter((id) => !HIDDEN_THEME_IDS.includes(id)).map((id) => ({
     id,
     i18nName: THEMES[id].i18nName,
     i18nMode: THEMES[id].i18nMode,
@@ -77,9 +80,11 @@ export function isPaperTextureBlockedTheme(themeId: unknown): boolean {
 const registry = {
   STORAGE_KEY,
   DEFAULT_THEME,
+  DEFAULT_SELECTION,
   AUTO_LIGHT_DEFAULT,
   AUTO_DARK_DEFAULT,
   PAPER_TEXTURE_BLOCKED_THEME_IDS,
+  HIDDEN_THEME_IDS,
   AUTO_OPTION,
   LEGACY_THEME_ALIASES,
   THEMES,

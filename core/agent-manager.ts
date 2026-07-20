@@ -606,7 +606,12 @@ export class AgentManager {
       throw new Error("Invalid config.example.yaml");
     }
     const config = configSeed;
-    config.agent = { ...(config.agent || {}), name: name.trim(), yuan: yuanType };
+    config.agent = {
+      ...(config.agent || {}),
+      name: name.trim(),
+      yuan: yuanType,
+      ...(selectedRolePreset ? { rolePreset: selectedRolePreset.id } : {}),
+    };
     config.memory = {
       ...(config.memory || {}),
       enabled: true,
@@ -621,7 +626,9 @@ export class AgentManager {
     }
     // migration #5 之后 models.chat 的唯一合法持久化格式是 {id, provider}。
     // 新建 agent 时必须直接写完整复合键，不能再把旧字符串格式重新带回磁盘。
-    const chatRef = parseModelRef(currentAgent?.config?.models?.chat);
+    const primaryAgentId = this._d.getPrefs().getPrimaryAgent();
+    const primaryAgent = this._agents.get(primaryAgentId) || currentAgent;
+    const chatRef = parseModelRef(primaryAgent?.config?.models?.chat);
     const defaultModel = this._d.getModels().defaultModel;
     const inheritedChat = (chatRef?.id && chatRef.provider)
       ? { id: chatRef.id, provider: chatRef.provider }

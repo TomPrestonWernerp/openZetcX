@@ -5,27 +5,38 @@
  */
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { applyDevEnvironment } from "./dev-env.js";
 
 const require = createRequire(import.meta.url);
 applyDevEnvironment(process.env);
+const { prepareWindowsDevElectron } = require("./prepare-windows-dev-electron.cjs");
 
 const mode = process.argv[2];
 const extra = process.argv.slice(3);
+const rootDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+
+function resolveElectronExecutable() {
+  return prepareWindowsDevElectron({
+    electronExecutable: require("electron"),
+    rootDir,
+  });
+}
 
 let bin, args;
 switch (mode) {
   case "electron":
-    bin = require("electron");
+    bin = resolveElectronExecutable();
     args = [".", ...extra];
     break;
   case "electron-dev":
-    bin = require("electron");
+    bin = resolveElectronExecutable();
     args = [".", "--dev", ...extra];
     break;
   case "electron-vite":
     process.env.VITE_DEV_URL = "http://localhost:5173";
-    bin = require("electron");
+    bin = resolveElectronExecutable();
     args = [".", "--dev", ...extra];
     break;
   case "cli":

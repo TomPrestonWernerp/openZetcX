@@ -86,8 +86,8 @@ describe('AgentCreateOverlay role presets', () => {
     expect(
       screen.getByRole('button', { name: /程序员/ }).querySelector('img'),
     ).toHaveAttribute('src', expect.stringContaining('/role-avatars/developer.png'));
-    expect(screen.getByText('openZetc')).toBeInTheDocument();
-    expect(screen.getByText('均衡的助手')).toBeInTheDocument();
+    expect(screen.getByText('openZetcX')).toBeInTheDocument();
+    expect(screen.getByText('AI Agent 助手')).toBeInTheDocument();
 
     const images = screen.getByRole('dialog').querySelectorAll('img');
     expect(images).toHaveLength(11);

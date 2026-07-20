@@ -181,8 +181,8 @@ export function AgentCreateOverlay() {
             />
           </span>
           <div>
-            <strong>openZetc</strong>
-            <span>均衡的助手</span>
+            <strong>openZetcX</strong>
+            <span>AI Agent 助手</span>
           </div>
         </div>
       </div>

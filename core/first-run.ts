@@ -19,6 +19,7 @@ import {
   OPENZETCX_DEFAULT_ROLE_PRESETS,
   OPENZETCX_PRIMARY_DEFAULT_ROLE_ID,
 } from "../shared/openzetcx-role-presets.ts";
+import { syncOpenZetcXRolePresetChatModels } from "./default-role-model-sync.ts";
 import { createModuleLogger } from "../lib/debug-log.ts";
 import { USER_PROFILE_FILENAME } from "../lib/user-profile-store.ts";
 
@@ -139,6 +140,17 @@ export function ensureFirstRun(openZetcXHome, productDir): FirstRunReport {
       }, null, 2) + "\n",
       "utf-8",
     );
+  }
+  try {
+    const preferences = JSON.parse(fs.readFileSync(prefsPath, "utf-8"));
+    syncOpenZetcXRolePresetChatModels(
+      agentsDir,
+      typeof preferences.primaryAgent === "string" && preferences.primaryAgent
+        ? preferences.primaryAgent
+        : DEFAULT_AGENT_ID,
+    );
+  } catch (err) {
+    log.warn(`同步默认角色模型失败：${err?.message || String(err)}`);
   }
 
   return { invalidAgentDirs, repairedDefaultAgent, defaultConfigBackupPath };

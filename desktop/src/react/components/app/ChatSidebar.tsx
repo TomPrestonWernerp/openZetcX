@@ -5,6 +5,7 @@ import { ChannelListSidebar } from '../channels/ChannelList';
 import { RegionalErrorBoundary } from '../RegionalErrorBoundary';
 import { SessionList } from '../SessionList';
 import { SidebarNoticeSlot } from '../notices/SidebarNoticeSlot';
+import { SidebarUpdateAction } from '../notices/SidebarUpdateAction';
 
 interface ChatSidebarContentProps {
   showSettingsButton?: boolean;
@@ -63,6 +64,7 @@ export function ChatSidebarContent({
               </svg>
             </button>
           )}
+          <SidebarUpdateAction />
           <button className="sidebar-action-btn" title={t('sidebar.collapse')} onClick={onCollapse}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <polyline points="15 6 9 12 15 18"></polyline>

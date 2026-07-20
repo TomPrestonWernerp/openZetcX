@@ -464,7 +464,7 @@ export interface PlatformApi {
   checkUpdate?(): Promise<{ version: string; downloadUrl: string } | null>;
 
   // ── Auto-update (Windows) ──
-  autoUpdateCheck?(): Promise<string | null>;
+  autoUpdateCheck?(): Promise<AutoUpdateState>;
   autoUpdateDownload?(): Promise<boolean>;
   autoUpdateInstall?(): Promise<boolean>;
   autoUpdateState?(): Promise<AutoUpdateState>;

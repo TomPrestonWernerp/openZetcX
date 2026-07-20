@@ -32,10 +32,12 @@ export interface ResolvedTheme {
 }
 
 export const STORAGE_KEY: 'hana-theme';
-export const DEFAULT_THEME: 'warm-paper';
-export const AUTO_LIGHT_DEFAULT: 'warm-paper';
+export const DEFAULT_THEME: 'deep-think';
+export const DEFAULT_SELECTION: 'auto';
+export const AUTO_LIGHT_DEFAULT: 'deep-think';
 export const AUTO_DARK_DEFAULT: 'midnight';
 export const PAPER_TEXTURE_BLOCKED_THEME_IDS: ReadonlyArray<ThemeId>;
+export const HIDDEN_THEME_IDS: ReadonlyArray<ThemeId>;
 export const AUTO_OPTION: ThemeUIOption;
 export const LEGACY_THEME_ALIASES: Readonly<Record<string, ThemeId>>;
 export const THEMES: Readonly<Record<ThemeId, ThemeEntry>>;

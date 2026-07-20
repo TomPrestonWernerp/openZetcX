@@ -464,9 +464,15 @@
     "title": "Ta",
     "splash": {
       "openZetcX": [
-        "{name} 记得傍晚的光",
-        "那些文字泡在时间里，变得很软 ✣",
-        "{name} 正把没说完的话轻轻收好"
+        "专业专注引领绿色发展",
+        "科技创新促建生态文明",
+        "成为备受尊敬的环境服务集成商",
+        "打造中国知名的环保产业集团",
+        "技术精湛、服务上乘、管理卓越、绩效一流",
+        "为客户创造价值！",
+        "专业、诚信、开放、共赢",
+        "以创新为动力！",
+        "拼搏、担当、勤学、协作"
       ]
     },
     "welcome": {
@@ -1094,6 +1100,7 @@
       "publicIshikiHint": "出于隐私考虑，助手与访客对话时无法访问记忆、你的个人信息，以及电脑上的任何文件与工具。\n你可以在这里设定助手对访客说话时的回复风格以及注意事项。",
       "chatModel": "Ta 的模型",
       "chatModelHint": "Ta 在对话与工作中使用的模型",
+      "chatModelInheritedHint": "使用主助手的系统默认模型，无需单独设置",
       "modelUnavailable": "当前不可用：{model}",
       "modelUnavailableHint": "当前模型已不在可用列表中，请重新选择模型，或去供应商页面重新保存配置并读取模型。",
       "imageModel": "图片模型",
@@ -1199,12 +1206,13 @@
     },
     "about": {
       "title": "关于 Ta",
-      "tagline": "一个住在你电脑里的助手，记性很好。",
+      "tagline": "浙江省环境科技 AI Agent 助手",
       "license": "许可证",
       "copyright": "版权",
       "licenseToggle": "许可证全文",
       "updateAvailable": "有新版本可用：v{version}",
       "updateDownload": "下载",
+      "updateAction": "更新",
       "updateChecking": "正在检查更新…",
       "updateDownloading": "{agentName}正在准备新家 {percent}%",
       "updateReadyInstall": "v{version} 已就绪",

@@ -240,7 +240,6 @@ jobs:
           else
             gh release create "${{ github.ref_name }}" \
               --draft \
-              --prerelease \
               --title "${{ github.ref_name }}" \
               --generate-notes
           fi
@@ -324,8 +323,8 @@ jobs:
           echo ""
           echo "✓ All required assets present"
 
-      - name: Publish release (un-draft, pre-release)
+      - name: Publish stable release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          gh release edit "${{ github.ref_name }}" --prerelease --draft=false
+          gh release edit "${{ github.ref_name }}" --prerelease=false --draft=false --latest

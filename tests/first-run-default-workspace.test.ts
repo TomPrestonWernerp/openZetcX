@@ -209,4 +209,41 @@ describe("first run default workspace", () => {
     expect(report.invalidAgentDirs).toEqual([]);
     expect(fs.existsSync(path.join(openZetcXHome, "agents", "general", "config.yaml"))).toBe(true);
   });
+
+  it("installs and refreshes every bundled skill on startup", async () => {
+    const bundledSkillsDir = path.join(tmpDir, "skills2set");
+    const bundledSkills = [
+      "emergency-plan-auditor",
+      "enterprise-emergency-plan-generator",
+      "risk-assessment-report-compiler",
+      "resource-investigation-compiler",
+    ];
+
+    for (const skillName of bundledSkills) {
+      const skillDir = path.join(bundledSkillsDir, skillName);
+      fs.mkdirSync(skillDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(skillDir, "SKILL.md"),
+        `---\nname: ${skillName}\ndescription: bundled ${skillName}\n---\n\n# bundled\n`,
+        "utf-8",
+      );
+    }
+
+    const existingSkillDir = path.join(openZetcXHome, "skills", "emergency-plan-auditor");
+    fs.mkdirSync(existingSkillDir, { recursive: true });
+    fs.writeFileSync(path.join(existingSkillDir, "SKILL.md"), "# stale\n", "utf-8");
+
+    const { ensureFirstRun } = await import("../core/first-run.ts");
+    ensureFirstRun(openZetcXHome, productDir);
+
+    for (const skillName of bundledSkills) {
+      const installedSkill = fs.readFileSync(
+        path.join(openZetcXHome, "skills", skillName, "SKILL.md"),
+        "utf-8",
+      );
+      expect(installedSkill).toContain(`name: ${skillName}`);
+      expect(installedSkill).toContain("# bundled");
+    }
+    expect(fs.readFileSync(path.join(existingSkillDir, "SKILL.md"), "utf-8")).not.toContain("# stale");
+  });
 });

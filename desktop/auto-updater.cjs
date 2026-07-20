@@ -20,6 +20,7 @@ let _checkTimer = null;
 let _ipcHandlersRegistered = false;
 let _updaterConfigured = false;
 let _installPromise = null;
+let _downloadPromise = null;
 
 /**
  * 读 preferences.json 里的 auto_check_updates，默认 true。
@@ -264,6 +265,9 @@ function setupAutoUpdater() {
   autoUpdater.autoDownload = false;          // 由我们控制（磁盘空间检查后手动触发）
   autoUpdater.autoInstallOnAppQuit = false;  // 只在用户明确点击"重启更新"时安装
   autoUpdater.allowPrerelease = false;       // 由频道控制
+  // 开发版也允许真实访问 GitHub Release。发现更新后沿用自动下载流程，
+  // 下载完成后仍由用户确认，再立即安装并重启。
+  autoUpdater.forceDevUpdateConfig = !app.isPackaged;
   autoUpdater.disableDifferentialDownload = true;
   if (process.platform === "win32") {
     autoUpdater.installDirectory = path.dirname(app.getPath("exe"));
@@ -276,7 +280,7 @@ function setupAutoUpdater() {
     setState({ status: "checking", progress: null, error: null });
   });
 
-  autoUpdater.on("update-available", async (info) => {
+  autoUpdater.on("update-available", (info) => {
     logUpdate(`update available: version=${info.version || "unknown"}`);
     setState({
       status: "available",
@@ -290,19 +294,7 @@ function setupAutoUpdater() {
           : null,
     });
 
-    // 磁盘空间检查
-    const ok = await hasSufficientDiskSpace(app.getPath("userData"), 500);
-    if (!ok) {
-      logUpdate(`download blocked: insufficient disk space, version=${info.version || "unknown"}`);
-      setState({ status: "error", error: "disk_space_insufficient", version: info.version });
-      return;
-    }
-
-    // 空间足够，开始静默下载
-    autoUpdater.downloadUpdate().catch((err) => {
-      logUpdate(`download failed: ${err?.message || String(err)}`);
-      setState({ status: "error", error: err?.message || String(err) });
-    });
+    downloadAvailableUpdate("automatic").catch(() => {});
   });
 
   autoUpdater.on("download-progress", (progress) => {
@@ -347,6 +339,52 @@ function setupAutoUpdater() {
   });
 }
 
+async function downloadAvailableUpdate(source = "manual") {
+  if (_updateState.status === "downloading" || _updateState.status === "downloaded") return true;
+  if (_updateState.status !== "available") {
+    logUpdate(`download ignored: status=${_updateState.status}, source=${source}`);
+    return false;
+  }
+  if (_downloadPromise) return _downloadPromise;
+
+  _downloadPromise = (async () => {
+    const version = _updateState.version;
+    const ok = await hasSufficientDiskSpace(app.getPath("userData"), 500);
+    if (!ok) {
+      logUpdate(`download blocked: insufficient disk space, version=${version || "unknown"}`);
+      setState({ status: "error", error: "disk_space_insufficient", version });
+      return false;
+    }
+
+    logUpdate(`download requested: source=${source}, version=${version || "unknown"}`);
+    setState({
+      status: "downloading",
+      version,
+      error: null,
+      progress: {
+        percent: 0,
+        bytesPerSecond: 0,
+        transferred: 0,
+        total: 0,
+      },
+    });
+
+    try {
+      await autoUpdater.downloadUpdate();
+      return true;
+    } catch (err) {
+      const message = err?.message || String(err);
+      logUpdate(`download failed: ${message}`);
+      setState({ status: "error", error: message, version, progress: null });
+      return false;
+    }
+  })().finally(() => {
+    _downloadPromise = null;
+  });
+
+  return _downloadPromise;
+}
+
 // ── IPC handlers ──
 
 function registerIpcHandlers() {
@@ -355,8 +393,12 @@ function registerIpcHandlers() {
   ipcMain.handle("auto-update-check", async () => {
     if (_updateState.status === "installing") return getState();
     resetState();
+    setState({ status: "checking", error: null, progress: null });
     try {
-      await autoUpdater.checkForUpdates();
+      const result = await autoUpdater.checkForUpdates();
+      if (!result && _updateState.status === "checking") {
+        setState({ status: "latest", error: null, progress: null });
+      }
     } catch (err) {
       if (isMissingLatestMetadataError(err)) {
         setState({ status: "latest", error: null, progress: null });
@@ -364,10 +406,12 @@ function registerIpcHandlers() {
         setState({ status: "error", error: err?.message || String(err) });
       }
     }
+    return getState();
   });
 
-  // 保留 channel 向后兼容，改为空操作（下载由 update-available 自动触发）
-  ipcMain.handle("auto-update-download", async () => true);
+  ipcMain.handle("auto-update-download", async () => {
+    return downloadAvailableUpdate("manual");
+  });
 
   ipcMain.handle("auto-update-install", async () => {
     return installDownloadedUpdate("manual");
@@ -402,9 +446,6 @@ function initAutoUpdater(mainWindow, {
 
   registerIpcHandlers(); // IPC handlers 是进程级单例，重复 init 时直接复用
 
-  // 开发环境不初始化 auto-updater
-  if (!app.isPackaged) return;
-
   // macOS：从 DMG 直接运行时禁用
   if (isRunningFromDmg()) {
     setState({ status: "error", error: "running_from_dmg" });
@@ -423,7 +464,7 @@ function initAutoUpdater(mainWindow, {
 }
 
 async function checkForUpdatesAuto() {
-  if (!app.isPackaged || isRunningFromDmg()) return;
+  if (isRunningFromDmg()) return;
   // 用户关了自动检查开关：启动时也不自动 check
   if (!isAutoCheckEnabled()) return;
   try {
@@ -439,4 +480,12 @@ function setMainWindow(win) {
   _mainWindow = win;
 }
 
-module.exports = { initAutoUpdater, checkForUpdatesAuto, setMainWindow, setUpdateChannel, getState, installDownloadedUpdate };
+module.exports = {
+  initAutoUpdater,
+  checkForUpdatesAuto,
+  setMainWindow,
+  setUpdateChannel,
+  getState,
+  downloadAvailableUpdate,
+  installDownloadedUpdate,
+};

@@ -43,6 +43,7 @@ export function AgentTab() {
     ? !!(globalModelsConfig.models?.utility && globalModelsConfig.models?.utility_large)
     : undefined;
   const selectedSettingsAgentId = settingsAgentId || currentAgentId;
+  const primaryAgentId = agents.find(agent => agent.isPrimary)?.id || null;
 
   const [agentName, setAgentName] = useState('');
   const [identity, setIdentity] = useState('');
@@ -98,6 +99,10 @@ export function AgentTab() {
     return opts;
   }, [availableModels, currentModel]);
   const currentModelUnavailable = !!currentModel && !availableModels.some(m => `${m.provider}/${m.id}` === currentModel);
+  const currentModelOption = modelOptions.find(option => option.value === currentModel);
+  const usesSystemDefaultModel = !!settingsConfig?.agent?.rolePreset
+    && !!primaryAgentId
+    && selectedSettingsAgentId !== primaryAgentId;
 
   const memoryEnabled = readConfigBoolean(settingsConfig, cfg => cfg.memory?.enabled, true);
   const experienceEnabled = readConfigBoolean(settingsConfig, cfg => cfg.experience?.enabled, false);
@@ -280,55 +285,77 @@ export function AgentTab() {
         <div className={`${styles['settings-form-field']} ${styles['settings-form-field-center']}`}>
           <div className={styles['model-capsule']}>
             <span className={styles['model-capsule-label']}>{t('settings.agent.chatModel')}</span>
-            <SelectWidget
-              className={styles['model-capsule-select']}
-              triggerClassName={styles['model-capsule-trigger']}
-              options={modelOptions}
-              value={currentModel}
-              onChange={async (refKey) => {
-                // refKey 是 SelectWidget 传回的 value，格式 "provider/id"
-                const slashIdx = refKey.indexOf('/');
-                if (slashIdx <= 0 || slashIdx === refKey.length - 1) {
-                  // 兜底：没有 / 的字符串是残留的老数据，此路径不应触发
-                  console.warn('[AgentTab] 模型 value 缺少 provider 前缀，已忽略', refKey);
-                  return;
-                }
-                const provider = refKey.slice(0, slashIdx);
-                const id = refKey.slice(slashIdx + 1);
-                await autoSaveConfig({ models: { chat: { id, provider } } });
-              }}
-              placeholder={t('settings.api.selectModel')}
-              renderTrigger={(option) => {
-                const slashIdx = currentModel.indexOf('/');
-                const provider = option?.group || (slashIdx > 0 ? currentModel.slice(0, slashIdx) : '');
-                return (
-                  <>
-                    {provider && (
-                      <ProviderIcon provider={provider} className={styles['model-capsule-provider-icon']} />
-                    )}
-                    <span className={styles['model-capsule-value']}>
-                      {option?.label || t('settings.api.selectModel')}
-                    </span>
-                    <svg
-                      className={styles['model-capsule-arrow']}
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.5"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                      aria-hidden="true"
-                    >
-                      <path d="M4 6l4 4 4-4" />
-                    </svg>
-                  </>
-                );
-              }}
-              renderGroupHeader={(g) => <ProviderGroupHeader provider={g} />}
-              popupClassName={selectWidgetStyles.providerInset}
-            />
+            {usesSystemDefaultModel ? (
+              <div
+                className={styles['model-capsule-system-default']}
+                data-testid="system-default-model"
+                title={currentModelOption?.label || currentModel}
+              >
+                {currentModelOption?.group ? (
+                  <ProviderIcon
+                    provider={currentModelOption.group}
+                    className={styles['model-capsule-provider-icon']}
+                  />
+                ) : null}
+                <span className={styles['model-capsule-value']}>
+                  {currentModelOption?.label || currentModel || t('settings.api.selectModel')}
+                </span>
+              </div>
+            ) : (
+              <SelectWidget
+                className={styles['model-capsule-select']}
+                triggerClassName={styles['model-capsule-trigger']}
+                options={modelOptions}
+                value={currentModel}
+                onChange={async (refKey) => {
+                  // refKey 是 SelectWidget 传回的 value，格式 "provider/id"
+                  const slashIdx = refKey.indexOf('/');
+                  if (slashIdx <= 0 || slashIdx === refKey.length - 1) {
+                    // 兜底：没有 / 的字符串是残留的老数据，此路径不应触发
+                    console.warn('[AgentTab] 模型 value 缺少 provider 前缀，已忽略', refKey);
+                    return;
+                  }
+                  const provider = refKey.slice(0, slashIdx);
+                  const id = refKey.slice(slashIdx + 1);
+                  await autoSaveConfig({ models: { chat: { id, provider } } });
+                }}
+                placeholder={t('settings.api.selectModel')}
+                renderTrigger={(option) => {
+                  const slashIdx = currentModel.indexOf('/');
+                  const provider = option?.group || (slashIdx > 0 ? currentModel.slice(0, slashIdx) : '');
+                  return (
+                    <>
+                      {provider && (
+                        <ProviderIcon provider={provider} className={styles['model-capsule-provider-icon']} />
+                      )}
+                      <span className={styles['model-capsule-value']}>
+                        {option?.label || t('settings.api.selectModel')}
+                      </span>
+                      <svg
+                        className={styles['model-capsule-arrow']}
+                        viewBox="0 0 16 16"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="1.5"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                        aria-hidden="true"
+                      >
+                        <path d="M4 6l4 4 4-4" />
+                      </svg>
+                    </>
+                  );
+                }}
+                renderGroupHeader={(g) => <ProviderGroupHeader provider={g} />}
+                popupClassName={selectWidgetStyles.providerInset}
+              />
+            )}
           </div>
-          <span className={styles['settings-form-hint']}>{t('settings.agent.chatModelHint')}</span>
+          <span className={styles['settings-form-hint']}>
+            {t(usesSystemDefaultModel
+              ? 'settings.agent.chatModelInheritedHint'
+              : 'settings.agent.chatModelHint')}
+          </span>
           {currentModelUnavailable && (
             <span className={styles['settings-form-hint']}>{t('settings.agent.modelUnavailableHint')}</span>
           )}

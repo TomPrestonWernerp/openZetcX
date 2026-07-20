@@ -381,6 +381,7 @@ function loadWindowURL(win, pageName, opts) {
 
 function attachRendererLaunchDiagnostics(win, label) {
   if (!win?.webContents) return;
+  applyWindowsTaskbarIcon(win);
   writeDesktopLaunchDiagnostic("window-created", { label, id: win.id });
 
   const wc = win.webContents;
@@ -527,6 +528,25 @@ function windowIconOpts() {
     return { icon: path.join(__dirname, "src", "icon.png") };
   }
   return {};
+}
+
+/**
+ * 开发态由 electron.exe 承载，任务栏可能沿用 Electron 的可执行文件图标。
+ * 给每个 Windows 原生窗口显式设置企业图标和 AppUserModelID，令开发、安装版一致。
+ */
+function applyWindowsTaskbarIcon(win) {
+  if (process.platform !== "win32" || !win || win.isDestroyed?.()) return;
+  const iconPath = path.join(__dirname, "src", "icon.ico");
+  try {
+    win.setIcon(iconPath);
+    win.setAppDetails({
+      appId: APP_USER_MODEL_ID,
+      appIconPath: iconPath,
+      appIconIndex: 0,
+    });
+  } catch (err) {
+    console.warn("[desktop] failed to apply Windows taskbar icon:", err?.message || err);
+  }
 }
 
 function framelessWindowOpts() {

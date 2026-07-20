@@ -29,6 +29,7 @@ vi.mock('../../settings/helpers', () => ({
 vi.mock('../../settings/actions', () => ({
   browseAgent: vi.fn(),
   switchToAgent: vi.fn(),
+  setPrimaryAgent: vi.fn(),
   loadSettingsConfig: vi.fn(async () => {}),
   loadAgents: vi.fn(async () => {}),
 }));
@@ -178,6 +179,34 @@ describe('AgentTab settings agent selection', () => {
 
     expect(await screen.findByTestId('provider-icon-zhipu-coding')).toBeTruthy();
     expect(screen.getByTestId('model-select')).toHaveTextContent('GLM-5.2');
+  });
+
+  it('shows bundled roles on the system default model without another selector', async () => {
+    hanaFetchMock.mockImplementation(async (_url: string, _opts?: RequestInit): Promise<MockResponse> => ({
+      json: async () => ({
+        models: [{ id: 'glm-5.2', name: 'GLM-5.2', provider: 'zhipu-coding' }],
+      }),
+    }));
+    useSettingsStore.setState({
+      agents: [
+        { id: 'general', name: '通用助手', yuan: 'openZetcX', isPrimary: true },
+        { id: 'developer', name: '程序员', yuan: 'openZetcX', isPrimary: false },
+      ],
+      currentAgentId: 'general',
+      settingsAgentId: 'developer',
+      settingsConfig: {
+        agent: { name: '程序员', yuan: 'openZetcX', rolePreset: 'developer' },
+        memory: { enabled: true },
+        models: { chat: { id: 'glm-5.2', provider: 'zhipu-coding' } },
+      },
+    });
+    const { AgentTab } = await import('../../settings/tabs/AgentTab');
+
+    render(<AgentTab />);
+
+    expect(await screen.findByTestId('system-default-model')).toHaveTextContent('GLM-5.2');
+    expect(screen.queryByTestId('model-select')).toBeNull();
+    expect(screen.getByText('settings.agent.chatModelInheritedHint')).toBeTruthy();
   });
 
   it('confirms character-card export from the live preview overlay', async () => {

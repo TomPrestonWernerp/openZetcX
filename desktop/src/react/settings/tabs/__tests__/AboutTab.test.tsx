@@ -74,6 +74,16 @@ function installHana() {
 }
 
 describe('AboutTab', () => {
+  it('runs a real updater check from the about-page button', () => {
+    installHana();
+    useSettingsStore.setState({ settingsConfig: { auto_check_updates: true, update_channel: 'stable' } });
+
+    render(<AboutTab />);
+    fireEvent.click(screen.getByRole('button', { name: 'settings.about.updateCheckBtn' }));
+
+    expect(window.hana?.autoUpdateCheck).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps startup and background controls out of the about page', () => {
     installHana();
     useSettingsStore.setState({ settingsConfig: { auto_check_updates: true, update_channel: 'stable' } });

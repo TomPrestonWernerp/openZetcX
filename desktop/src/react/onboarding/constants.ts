@@ -4,6 +4,7 @@
 
 import { API_PROVIDER_PRESETS } from '../utils/provider-presets';
 import type { ProviderPreset } from '../utils/provider-presets';
+import registry, { type ThemeId } from '../../shared/theme-registry';
 
 export type { ProviderPreset } from '../utils/provider-presets';
 
@@ -23,10 +24,14 @@ export const PROVIDER_PRESETS: ProviderPreset[] = [
   { value: '_custom',     label: '',                     url: '',  api: 'openai-completions', custom: true },
 ];
 
-export const OB_THEMES = [
+const ONBOARDING_THEME_ORDER = [
   'warm-paper', 'coral', 'midnight', 'auto', 'high-contrast', 'grass-aroma',
   'contemplation', 'absolutely', 'delve', 'deep-think',
 ] as const;
+
+export const OB_THEMES = ONBOARDING_THEME_ORDER.filter(
+  id => id === registry.AUTO_OPTION.id || !registry.HIDDEN_THEME_IDS.includes(id as ThemeId),
+);
 
 export function themeKey(id: string): string {
   return id.replace(/-([a-z])/g, (_, c: string) => c.toUpperCase());
