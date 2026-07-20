@@ -131,4 +131,14 @@ describe("macOS update metadata release contract", () => {
     expect(workflow).not.toContain("Only x64 yml found, using as-is");
     expect(workflow).not.toContain("Only arm64 yml found, using as-is");
   });
+
+  it("falls back to unsigned macOS packages when signing secrets are unavailable", () => {
+    const workflow = fs.readFileSync(workflowPath, "utf8");
+
+    expect(workflow).toContain('if [ -z "${CSC_LINK:-}" ] || [ -z "${CSC_KEY_PASSWORD:-}" ]');
+    expect(workflow).toContain('echo "MAC_SIGNING_AVAILABLE=false" >> "$GITHUB_ENV"');
+    expect(workflow).toContain('echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"');
+    expect(workflow).toContain('echo "SKIP_NOTARIZE=true" >> "$GITHUB_ENV"');
+    expect(workflow).toContain("runner.os == 'macOS' && env.MAC_SIGNING_AVAILABLE == 'true'");
+  });
 });

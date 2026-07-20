@@ -85,6 +85,15 @@ jobs:
           CSC_LINK: ${{ secrets.CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
         run: |
+          if [ -z "${CSC_LINK:-}" ] || [ -z "${CSC_KEY_PASSWORD:-}" ]; then
+            echo "::warning::macOS signing credentials are unavailable; building unsigned DMG/ZIP artifacts"
+            echo "MAC_SIGNING_AVAILABLE=false" >> "$GITHUB_ENV"
+            echo "CSC_IDENTITY_AUTO_DISCOVERY=false" >> "$GITHUB_ENV"
+            echo "SKIP_NOTARIZE=true" >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          echo "MAC_SIGNING_AVAILABLE=true" >> "$GITHUB_ENV"
           KEYCHAIN_PATH="$RUNNER_TEMP/build.keychain-db"
           KEYCHAIN_PASSWORD="ci-$(openssl rand -hex 12)"
 
@@ -114,7 +123,7 @@ jobs:
       # identity 不硬编码进本 public 文件，证书是唯一来源，保证 mask 串与 electron-builder
       # 实际打印的串一致、永不漏配；读取不到就 fail（report，不静默降级）。
       - name: Mask signing identity in logs
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && env.MAC_SIGNING_AVAILABLE == 'true'
         run: |
           IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/')
           if [ -z "$IDENTITY" ]; then
@@ -135,7 +144,7 @@ jobs:
       # @electron/osx-sign 在签名大量文件时会卡死（原因不明），
       # 手动先签好 dist-server 里的 native 二进制，electron-builder 只签 Electron 框架。
       - name: Pre-sign server binaries
-        if: runner.os == 'macOS'
+        if: runner.os == 'macOS' && env.MAC_SIGNING_AVAILABLE == 'true'
         run: |
           IDENTITY=$(security find-identity -v -p codesigning | grep "Developer ID Application" | head -1 | sed 's/.*"\(.*\)"/\1/')
           echo "Using code-signing identity (masked in logs)"
@@ -169,6 +178,8 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_ID_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          CSC_IDENTITY_AUTO_DISCOVERY: ${{ env.CSC_IDENTITY_AUTO_DISCOVERY }}
+          SKIP_NOTARIZE: ${{ env.SKIP_NOTARIZE }}
 
       # Windows 打包
       # --publish never：和 mac 同理，由 release job 单点上传。
