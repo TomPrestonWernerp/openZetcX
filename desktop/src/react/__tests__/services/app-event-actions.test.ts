@@ -166,6 +166,17 @@ describe('handleAppEvent', () => {
     expect(requestContextUsage).toHaveBeenCalledWith('/session/a.jsonl');
   });
 
+  it('user-updated refreshes the visible chat identity only for the current agent', async () => {
+    Object.assign(mockState, { currentAgentId: 'agent-a', userName: 'User' });
+    const { handleAppEvent } = await import('../../services/app-event-actions');
+
+    handleAppEvent('user-updated', { agentId: 'agent-b', userName: 'Other User' });
+    expect(mockState.userName).toBe('User');
+
+    handleAppEvent('user-updated', { agentId: 'agent-a', userName: '  Alice  ' });
+    expect(mockState.userName).toBe('Alice');
+  });
+
   it('skills-changed increments the skill catalog revision and emits a browser event', async () => {
     Object.assign(mockState, { skillCatalogVersion: 2 });
     const { handleAppEvent } = await import('../../services/app-event-actions');

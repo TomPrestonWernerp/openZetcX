@@ -22,7 +22,7 @@ import path from "path";
 
 // ── Mock compile / deep-memory / debug ──
 
-vi.mock("../lib/memory/compile.js", () => ({
+vi.mock("../lib/memory/compile.ts", () => ({
   compileToday: vi.fn().mockResolvedValue("compiled"),
   compileWeek: vi.fn().mockResolvedValue("compiled"),
   compileLongterm: vi.fn().mockResolvedValue("compiled"),
@@ -33,11 +33,11 @@ vi.mock("../lib/memory/compile.js", () => ({
   ensureEditableFactsBaseline: vi.fn(),
 }));
 
-vi.mock("../lib/memory/deep-memory.js", () => ({
+vi.mock("../lib/memory/deep-memory.ts", () => ({
   processDirtySessions: vi.fn().mockResolvedValue({ processed: 0, factsAdded: 0 }),
 }));
 
-vi.mock("../lib/debug-log.js", () => ({
+vi.mock("../lib/debug-log.ts", () => ({
   debugLog: () => null,
   createModuleLogger: () => ({
     log: vi.fn(),
@@ -290,6 +290,40 @@ describe("_doDaily step orchestration", () => {
     expect(compileLongterm).toHaveBeenCalledOnce();
     expect(processDirtySessions).toHaveBeenCalledOnce();
     expect(assemble).toHaveBeenCalled();
+  });
+
+  it("falls back to another model when the memory model has insufficient balance", async () => {
+    ticker.stop();
+    const primaryModel = {
+      model: "paid-model",
+      provider: "paid-provider",
+      api: "openai-completions",
+      api_key: "paid-key",
+      base_url: "https://paid.invalid",
+    };
+    const fallbackModel = {
+      model: "fallback-model",
+      provider: "fallback-provider",
+      api: "openai-completions",
+      api_key: "fallback-key",
+      base_url: "https://fallback.invalid",
+    };
+    ticker = makeTicker(tmpDir, undefined, {
+      getResolvedMemoryModel: () => primaryModel,
+      getResolvedMemoryFallbackModels: () => [primaryModel, fallbackModel],
+    });
+    (compileFacts as any)
+      .mockRejectedValueOnce(new Error("Insufficient Balance"))
+      .mockResolvedValueOnce("compiled");
+
+    await ticker.tick();
+
+    expect((compileFacts as any).mock.calls[0][2]).toBe(primaryModel);
+    expect((compileFacts as any).mock.calls[1][2]).toBe(fallbackModel);
+    expect(ticker.getHealthStatus().compileFacts).toMatchObject({
+      failCount: 0,
+      lastErrorMsg: null,
+    });
   });
 
   it("deepMemory failure retries on next tick", async () => {

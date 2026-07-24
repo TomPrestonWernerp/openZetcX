@@ -275,6 +275,7 @@ describe("agents route", () => {
       body: JSON.stringify({
         locale: "en-US",
         agent: { name: "Hana Prime", yuan: "butter" },
+        user: { name: "Alice" },
         desk: { home_folder: "/tmp/hana-work" },
         memory: { enabled: false },
         models: { chat: { id: "gpt-5", provider: "openai" } },
@@ -285,6 +286,7 @@ describe("agents route", () => {
     expect(res.status).toBe(200);
     expect(engine.updateConfig).toHaveBeenCalledWith(expect.objectContaining({
       agent: { name: "Hana Prime", yuan: "butter" },
+      user: { name: "Alice" },
       desk: { home_folder: "/tmp/hana-work" },
       memory: expect.objectContaining({ enabled: false }),
       models: { chat: { id: "gpt-5", provider: "openai" } },
@@ -297,6 +299,10 @@ describe("agents route", () => {
       agentName: "Hana Prime",
       yuan: "butter",
     });
+    expectAppEvent(engine.emitEvent, "user-updated", {
+      agentId,
+      userName: "Alice",
+    });
     expectAppEvent(engine.emitEvent, "agent-workspace-changed", {
       agentId,
       homeFolder: "/tmp/hana-work",
@@ -307,6 +313,53 @@ describe("agents route", () => {
     });
     expectAppEvent(engine.emitEvent, "locale-changed", { locale: "en-US" });
     expectAppEvent(engine.emitEvent, "skills-changed", { agentId });
+  });
+
+  it("updates only the selected role when its chat model changes", async () => {
+    const selectedAgentId = "developer";
+    const otherAgentId = "writer";
+    for (const [id, rolePreset] of [[selectedAgentId, "developer"], [otherAgentId, "writer"]]) {
+      const dir = path.join(tempRoot, id);
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(dir, "config.yaml"),
+        `agent:\n  name: ${id}\n  rolePreset: ${rolePreset}\nmodels:\n  chat:\n    id: old-model\n    provider: old-provider\n`,
+        "utf-8",
+      );
+    }
+
+    const { createAgentsRoute } = await import("../server/routes/agents.ts");
+    const app = new Hono();
+    const engine = {
+      agentsDir: tempRoot,
+      providerRegistry: {
+        saveProvider: vi.fn(),
+        removeProvider: vi.fn(),
+        getAllProvidersRaw: vi.fn(() => ({})),
+        get: vi.fn(() => null),
+      },
+      updateConfig: vi.fn().mockResolvedValue(undefined),
+      invalidateAgentListCache: vi.fn(),
+      emitEvent: vi.fn(),
+    };
+    app.route("/api", createAgentsRoute(engine));
+
+    const res = await app.request(`/api/agents/${selectedAgentId}/config`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        models: { chat: { id: "new-model", provider: "new-provider" } },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(engine.updateConfig).toHaveBeenCalledTimes(1);
+    expect(engine.updateConfig).toHaveBeenCalledWith(
+      { models: { chat: { id: "new-model", provider: "new-provider" } } },
+      { agentId: selectedAgentId },
+    );
+    expect(fs.readFileSync(path.join(tempRoot, otherAgentId, "config.yaml"), "utf-8"))
+      .toContain("id: old-model");
   });
 
   it("editing another agent config can clear saved provider credentials", async () => {

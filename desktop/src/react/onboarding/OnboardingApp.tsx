@@ -39,12 +39,23 @@ export function OnboardingApp({ preview, skipToTutorial }: OnboardingAppProps) {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const localeLoadSeq = useRef(0);
 
-  const hanaFetch: HanaFetch = useCallback((path, opts = {}) => {
+  const hanaFetch: HanaFetch = useCallback(async (path, opts = {}) => {
     if (!serverConnection) {
       throw new Error(`onboarding hanaFetch ${path}: server connection not ready`);
     }
     const headers = appendConnectionAuth(serverConnection, opts.headers);
-    return fetch(buildConnectionUrl(serverConnection, path), { ...opts, headers });
+    const response = await fetch(buildConnectionUrl(serverConnection, path), { ...opts, headers });
+    if (!response.ok) {
+      let detail = '';
+      try {
+        const data = await response.clone().json();
+        detail = typeof data?.error === 'string' ? data.error : '';
+      } catch {
+        detail = '';
+      }
+      throw new Error(detail || `onboarding hanaFetch ${path}: HTTP ${response.status}`);
+    }
+    return response;
   }, [serverConnection]);
 
   const showError = useCallback((msg: string) => {

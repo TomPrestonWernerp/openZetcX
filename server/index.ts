@@ -220,7 +220,10 @@ const serverRuntimeState = {
   bindHost: serverNetwork.host,
   configuredMode: serverNetwork.mode,
   configuredListenHost: serverNetwork.host,
-  configuredPort: port,
+  // HANA_PORT may temporarily be 0 when desktop recovers from a stale fixed
+  // port after an update. Preserve the user's configured port separately from
+  // the actual fallback listener selected by the OS.
+  configuredPort: serverNetwork.port,
   actualPort: null,
   applyNetworkConfig(network) {
     this.configuredMode = network.mode;

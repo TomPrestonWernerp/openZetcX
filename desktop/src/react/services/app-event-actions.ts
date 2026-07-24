@@ -185,6 +185,14 @@ export function handleAppEvent(type: string, data: any = {}, options: AppEventOp
       }
       break;
     }
+    case 'user-updated': {
+      const state = useStore.getState();
+      if (data.agentId && data.agentId !== state.currentAgentId) break;
+      if (typeof data.userName === 'string' && data.userName.trim()) {
+        useStore.setState({ userName: data.userName.trim() });
+      }
+      break;
+    }
     case 'skills-changed': {
       useStore.setState((state: any) => ({
         skillCatalogVersion: (Number(state.skillCatalogVersion) || 0) + 1,

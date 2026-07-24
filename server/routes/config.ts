@@ -98,6 +98,13 @@ function emitConfigAppEvents(engine: any, { globalFields, agentPartial, provider
     emitAppEvent(engine, "models-changed", { agentId });
   }
 
+  if (hasOwn(agentPartial?.user, "name")) {
+    emitAppEvent(engine, "user-updated", {
+      agentId,
+      userName: agentPartial.user.name,
+    });
+  }
+
   const locale = getGlobalValue(globalFields, "locale");
   if (locale !== undefined) {
     emitAppEvent(engine, "locale-changed", { locale });

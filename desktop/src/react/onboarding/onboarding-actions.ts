@@ -142,20 +142,16 @@ function compactModelEntry(entry: AddedModelEntry): AddedModelEntry {
 }
 
 export async function saveModel({ hanaFetch, selectedModel, providerName, addedModels, selectedUtility, selectedUtilityLarge }: SaveModelParams): Promise<void> {
-  // Save chat model
-  await hanaFetch(`/api/agents/${AGENT_ID}/config`, {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ models: { chat: { id: selectedModel, provider: providerName } } }),
-  });
-
-  // Save only the user's explicit Added Models selection to provider.
+  // Register the provider models and select the chat model atomically. The
+  // server refreshes the provider registry before applying models.chat, so a
+  // fresh installation never references a model that is not available yet.
   const modelEntries = addedModels.map(compactModelEntry);
   await hanaFetch(`/api/agents/${AGENT_ID}/config`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       providers: { [providerName]: { models: modelEntries } },
+      models: { chat: { id: selectedModel, provider: providerName } },
     }),
   });
 

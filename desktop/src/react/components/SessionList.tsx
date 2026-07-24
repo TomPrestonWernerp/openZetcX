@@ -215,6 +215,7 @@ function SessionListInner() {
   const browserBySession = useStore(s => s.browserBySession);
   const projectCatalog = useStore(s => s.sessionProjectCatalog);
   const projectCatalogLoaded = useStore(s => s.sessionProjectCatalogLoaded);
+  const activeServerConnectionId = useStore(s => s.activeServerConnectionId);
 
   const [browserSessions, setBrowserSessions] = useState<Record<string, BrowserSessionState>>({});
   const [viewMode, setViewModeState] = useState<SessionViewMode>(readInitialSessionViewMode);
@@ -327,6 +328,7 @@ function SessionListInner() {
     nextCollapsedFolderIds: Set<string>,
     nextShowAllProjectIds: Set<string>,
   ) => {
+    if (!useStore.getState().activeServerConnectionId) return;
     hanaFetch('/api/preferences/sidebar-ui', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -353,6 +355,7 @@ function SessionListInner() {
   }, [viewMode]);
 
   useEffect(() => {
+    if (!activeServerConnectionId) return;
     let cancelled = false;
     hanaFetch('/api/preferences/sidebar-ui')
       .then(res => res.json())
@@ -364,7 +367,7 @@ function SessionListInner() {
     return () => {
       cancelled = true;
     };
-  }, [applySidebarUiPrefs]);
+  }, [activeServerConnectionId, applySidebarUiPrefs]);
 
   useEffect(() => {
     const handleLocalSettings = (event: Event) => {

@@ -469,6 +469,12 @@ export class ConfigCoordinator {
     // agent 负责：写磁盘、刷新身份、刷新模块、重建 prompt
     if (refreshDescription) agent.updateConfig(partial, { refreshDescription: true });
     else agent.updateConfig(partial);
+    if (partial.models) {
+      // Recompute this agent's utility/memory runtime references immediately.
+      // Otherwise a chat-model change can leave background memory work bound
+      // to the previous model until the process restarts.
+      this._syncSharedModelsToAgent(agent, this.getSharedModels());
+    }
 
     // 模型切换只在焦点 agent 时生效。migration #5 之后 models.chat 必为
     // {id, provider} 对象；缺 provider 直接忽略并告警（调用方应传完整复合键）。

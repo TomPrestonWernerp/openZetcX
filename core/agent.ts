@@ -410,6 +410,23 @@ export class Agent {
           usageLedger: this._cb?.getEngine?.()?.usageLedger,
           usageAgentId: this.id,
         }),
+        // A large utility model can be temporarily unavailable because of
+        // balance, quota, or rate limits. Keep memory processing moving by
+        // trying the small utility model and this agent's own chat model.
+        getResolvedMemoryFallbackModels: () => {
+          const resolved = [];
+          for (const modelRef of [this._utilityModel, this._config.models?.chat]) {
+            if (!modelRef) continue;
+            try {
+              resolved.push({
+                ...this._resolveModel(modelRef, this._config),
+                usageLedger: this._cb?.getEngine?.()?.usageLedger,
+                usageAgentId: this.id,
+              });
+            } catch {}
+          }
+          return resolved;
+        },
         getMemoryMasterEnabled: () => this._memoryMasterEnabled,
         isSessionMemoryEnabled: (sessionPath) => this.isSessionMemoryEnabledFor(sessionPath),
         getTimezone: () => this._cb?.getTimezone?.() || Intl.DateTimeFormat().resolvedOptions().timeZone,

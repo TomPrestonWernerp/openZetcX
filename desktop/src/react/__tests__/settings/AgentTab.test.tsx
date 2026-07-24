@@ -14,6 +14,7 @@ const hanaFetchMock = vi.fn(async (_url: string, _opts?: RequestInit): Promise<M
   json: async () => ({ models: [] }),
 }));
 const showInFinderMock = vi.fn();
+const autoSaveConfigMock = vi.fn(async (_partial: unknown) => true);
 
 vi.mock('../../settings/api', () => ({
   hanaFetch: (url: string, opts?: RequestInit) => hanaFetchMock(url, opts),
@@ -23,7 +24,7 @@ vi.mock('../../settings/api', () => ({
 
 vi.mock('../../settings/helpers', () => ({
   t: (key: string) => key,
-  autoSaveConfig: vi.fn(async () => true),
+  autoSaveConfig: (partial: unknown) => autoSaveConfigMock(partial),
 }));
 
 vi.mock('../../settings/actions', () => ({
@@ -38,16 +39,24 @@ vi.mock('@/ui', () => ({
   SelectWidget: ({
     value,
     options = [],
+    onChange,
     renderTrigger,
   }: {
     value?: string;
     options?: Array<{ value: string; label: string; group?: string }>;
+    onChange?: (value: string) => void;
     renderTrigger?: (option: { value: string; label: string; group?: string } | undefined, isOpen: boolean) => React.ReactNode;
   }) => {
     const current = options.find(o => o.value === value);
+    const alternative = options.find(o => o.value !== value);
     return (
       <div data-testid="model-select">
         {renderTrigger ? renderTrigger(current, false) : (value || '')}
+        {alternative && onChange ? (
+          <button data-testid="select-alternative-model" onClick={() => onChange(alternative.value)}>
+            {alternative.label}
+          </button>
+        ) : null}
       </div>
     );
   },
@@ -181,10 +190,13 @@ describe('AgentTab settings agent selection', () => {
     expect(screen.getByTestId('model-select')).toHaveTextContent('GLM-5.2');
   });
 
-  it('shows bundled roles on the system default model without another selector', async () => {
+  it('allows each bundled role to select and save its own chat model', async () => {
     hanaFetchMock.mockImplementation(async (_url: string, _opts?: RequestInit): Promise<MockResponse> => ({
       json: async () => ({
-        models: [{ id: 'glm-5.2', name: 'GLM-5.2', provider: 'zhipu-coding' }],
+        models: [
+          { id: 'glm-5.2', name: 'GLM-5.2', provider: 'zhipu-coding' },
+          { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', provider: 'deepseek' },
+        ],
       }),
     }));
     useSettingsStore.setState({
@@ -204,9 +216,15 @@ describe('AgentTab settings agent selection', () => {
 
     render(<AgentTab />);
 
-    expect(await screen.findByTestId('system-default-model')).toHaveTextContent('GLM-5.2');
-    expect(screen.queryByTestId('model-select')).toBeNull();
-    expect(screen.getByText('settings.agent.chatModelInheritedHint')).toBeTruthy();
+    expect(await screen.findByTestId('model-select')).toHaveTextContent('GLM-5.2');
+    expect(screen.queryByTestId('system-default-model')).toBeNull();
+    expect(screen.getByText('settings.agent.chatModelHint')).toBeTruthy();
+
+    fireEvent.click(screen.getByTestId('select-alternative-model'));
+
+    expect(autoSaveConfigMock).toHaveBeenCalledWith({
+      models: { chat: { id: 'deepseek-v4-pro', provider: 'deepseek' } },
+    });
   });
 
   it('confirms character-card export from the live preview overlay', async () => {

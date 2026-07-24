@@ -93,7 +93,11 @@ export async function autoSaveConfig(
     for (const k of ['_identity', '_ishiki', '_publicIshiki', '_userProfile', '_experience']) {
       if (k in prev && !(k in newConfig)) newConfig[k] = (prev as any)[k];
     }
-    useSettingsStore.setState({ settingsConfig: newConfig });
+    // The user can switch cards while this request is in flight. Never let a
+    // late response from agent A replace the settings currently shown for B.
+    if (useSettingsStore.getState().getSettingsAgentId() === agentId) {
+      useSettingsStore.setState({ settingsConfig: newConfig });
+    }
     return true;
   } catch (err: any) {
     store.showToast(t('settings.saveFailed') + ': ' + err.message, 'error');

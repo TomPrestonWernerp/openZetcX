@@ -203,6 +203,16 @@ describe("server startup diagnostics contract", () => {
     expect(mainSource).toContain("return `${rootServerError}\\n\\n${tail}`");
   });
 
+  it("recovers from a stale update server by retrying on an ephemeral port", () => {
+    const mainSource = fs.readFileSync(path.join(root, "desktop", "main.cjs"), "utf-8");
+    const serverSource = fs.readFileSync(path.join(root, "server", "index.ts"), "utf-8");
+
+    expect(mainSource).toContain("_spawnServerOnce(serverInfoPath, { portOverride: 0 })");
+    expect(mainSource).toContain('HANA_PORT_FALLBACK: "1"');
+    expect(mainSource).toContain("Server fallback port ready");
+    expect(serverSource).toContain("configuredPort: serverNetwork.port");
+  });
+
   it("keeps native SQLite out of the server static import graph", () => {
     const factStoreSource = fs.readFileSync(path.join(root, "lib", "memory", "fact-store.ts"), "utf-8");
     const agentSource = fs.readFileSync(path.join(root, "core", "agent.ts"), "utf-8");

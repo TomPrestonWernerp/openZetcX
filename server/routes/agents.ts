@@ -51,7 +51,6 @@ import {
 } from "./provider-credentials.ts";
 import { mergeWorkspaceHistory } from "../../shared/workspace-history.ts";
 import { getOpenZetcXRolePreset } from "../../shared/openzetcx-role-presets.ts";
-import { syncOpenZetcXRolePresetChatModels } from "../../core/default-role-model-sync.ts";
 import {
   collectSecretPatchPaths,
   maskObjectSecrets,
@@ -167,6 +166,13 @@ function emitAgentConfigAppEvents(engine, agentId, { globalFields, agentPartial,
     || hasOwn(agentPartial, "models")
   ) {
     emitAppEvent(engine, "models-changed", { agentId });
+  }
+
+  if (hasOwn(agentPartial?.user, "name")) {
+    emitAppEvent(engine, "user-updated", {
+      agentId,
+      userName: agentPartial.user.name,
+    });
   }
 
   const agentPayload: Record<string, any> = { agentId };
@@ -670,25 +676,9 @@ export function createAgentsRoute(engine) {
       const configPath = path.join(agentDir(engine, id), "config.yaml");
       saveConfig(configPath, agentPartial);
       engine.invalidateAgentListCache();
-      // 触发目标 agent 模块刷新 + prompt 重建
+      // 只刷新目标 agent。每个角色的 models.chat 都是独立配置，
+      // 修改主助手不得覆盖其他内置角色或自定义角色。
       await engine.updateConfig(agentPartial, { agentId: id });
-      const primaryAgentId = engine.listAgents().find((agent) => agent.isPrimary)?.id;
-      if (primaryAgentId === id && agentPartial.models?.chat) {
-        const syncedRoleAgentIds = syncOpenZetcXRolePresetChatModels(
-          engine.agentsDir,
-          id,
-          agentPartial.models.chat,
-        );
-        for (const syncedAgentId of syncedRoleAgentIds) {
-          await engine.updateConfig(
-            { models: { chat: agentPartial.models.chat } },
-            { agentId: syncedAgentId },
-          );
-        }
-        if (syncedRoleAgentIds.length > 0) {
-          engine.invalidateAgentListCache();
-        }
-      }
       // 记忆总开关：无论是否 active agent，都需要刷新运行时状态（因为 ticker 后台在跑）
       if (agentPartial.memory && "enabled" in agentPartial.memory) {
         engine.setMemoryMasterEnabled(id, agentPartial.memory.enabled !== false);

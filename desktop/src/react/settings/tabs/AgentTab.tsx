@@ -43,7 +43,6 @@ export function AgentTab() {
     ? !!(globalModelsConfig.models?.utility && globalModelsConfig.models?.utility_large)
     : undefined;
   const selectedSettingsAgentId = settingsAgentId || currentAgentId;
-  const primaryAgentId = agents.find(agent => agent.isPrimary)?.id || null;
 
   const [agentName, setAgentName] = useState('');
   const [identity, setIdentity] = useState('');
@@ -99,10 +98,6 @@ export function AgentTab() {
     return opts;
   }, [availableModels, currentModel]);
   const currentModelUnavailable = !!currentModel && !availableModels.some(m => `${m.provider}/${m.id}` === currentModel);
-  const currentModelOption = modelOptions.find(option => option.value === currentModel);
-  const usesSystemDefaultModel = !!settingsConfig?.agent?.rolePreset
-    && !!primaryAgentId
-    && selectedSettingsAgentId !== primaryAgentId;
 
   const memoryEnabled = readConfigBoolean(settingsConfig, cfg => cfg.memory?.enabled, true);
   const experienceEnabled = readConfigBoolean(settingsConfig, cfg => cfg.experience?.enabled, false);
@@ -285,24 +280,7 @@ export function AgentTab() {
         <div className={`${styles['settings-form-field']} ${styles['settings-form-field-center']}`}>
           <div className={styles['model-capsule']}>
             <span className={styles['model-capsule-label']}>{t('settings.agent.chatModel')}</span>
-            {usesSystemDefaultModel ? (
-              <div
-                className={styles['model-capsule-system-default']}
-                data-testid="system-default-model"
-                title={currentModelOption?.label || currentModel}
-              >
-                {currentModelOption?.group ? (
-                  <ProviderIcon
-                    provider={currentModelOption.group}
-                    className={styles['model-capsule-provider-icon']}
-                  />
-                ) : null}
-                <span className={styles['model-capsule-value']}>
-                  {currentModelOption?.label || currentModel || t('settings.api.selectModel')}
-                </span>
-              </div>
-            ) : (
-              <SelectWidget
+            <SelectWidget
                 className={styles['model-capsule-select']}
                 triggerClassName={styles['model-capsule-trigger']}
                 options={modelOptions}
@@ -348,13 +326,10 @@ export function AgentTab() {
                 }}
                 renderGroupHeader={(g) => <ProviderGroupHeader provider={g} />}
                 popupClassName={selectWidgetStyles.providerInset}
-              />
-            )}
+            />
           </div>
           <span className={styles['settings-form-hint']}>
-            {t(usesSystemDefaultModel
-              ? 'settings.agent.chatModelInheritedHint'
-              : 'settings.agent.chatModelHint')}
+            {t('settings.agent.chatModelHint')}
           </span>
           {currentModelUnavailable && (
             <span className={styles['settings-form-hint']}>{t('settings.agent.modelUnavailableHint')}</span>

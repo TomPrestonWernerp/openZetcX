@@ -234,9 +234,9 @@ describe("auto-updater", () => {
         handlers[event] = handler;
       });
 
-      const shutdownServer = vi.fn(() => new Promise(() => {}));
+      const prepareForInstall = vi.fn().mockResolvedValue(undefined);
       const setIsUpdating = vi.fn();
-      const win = initWithMockWindow({ shutdownServer, setIsUpdating });
+      const win = initWithMockWindow({ prepareForInstall, setIsUpdating });
 
       if (handlers["update-downloaded"]) {
         handlers["update-downloaded"]({ version: "2.0.0" });
@@ -246,7 +246,7 @@ describe("auto-updater", () => {
       await Promise.resolve();
 
       expect(setIsUpdating).toHaveBeenCalledWith(true);
-      expect(shutdownServer).not.toHaveBeenCalled();
+      expect(prepareForInstall).toHaveBeenCalledTimes(1);
       expect(mockAutoUpdater.quitAndInstall).not.toHaveBeenCalled();
       await new Promise(resolve => setImmediate(resolve));
       expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true);
@@ -274,8 +274,8 @@ describe("auto-updater", () => {
         ipcHandlers[name] = handler;
       });
 
-      const shutdownServer = vi.fn(() => new Promise(() => {}));
-      initWithMockWindow({ shutdownServer });
+      const prepareForInstall = vi.fn().mockResolvedValue(undefined);
+      initWithMockWindow({ prepareForInstall });
 
       if (handlers["update-downloaded"]) {
         handlers["update-downloaded"]({ version: "2.0.0" });
@@ -284,7 +284,7 @@ describe("auto-updater", () => {
       const installPromise = ipcHandlers["auto-update-install"]();
       await Promise.resolve();
 
-      expect(shutdownServer).not.toHaveBeenCalled();
+      expect(prepareForInstall).toHaveBeenCalledTimes(1);
       expect(mockAutoUpdater.quitAndInstall).not.toHaveBeenCalled();
       await new Promise(resolve => setImmediate(resolve));
       expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalledWith(true, true);
@@ -317,5 +317,18 @@ describe("auto-updater", () => {
     } finally {
       Object.defineProperty(process, "platform", { value: originalPlatform });
     }
+  });
+
+  it("continues with installer cleanup when graceful runtime preparation fails", async () => {
+    const prepareForInstall = vi.fn().mockRejectedValue(new Error("server shutdown timed out"));
+    initWithMockWindow({ prepareForInstall });
+
+    if (handlers["update-downloaded"]) {
+      handlers["update-downloaded"]({ version: "2.0.0" });
+    }
+
+    await expect(mod.installDownloadedUpdate("manual")).resolves.toBe(true);
+    expect(prepareForInstall).toHaveBeenCalledTimes(1);
+    expect(mockAutoUpdater.quitAndInstall).toHaveBeenCalled();
   });
 });

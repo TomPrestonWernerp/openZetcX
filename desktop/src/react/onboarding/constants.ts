@@ -5,10 +5,11 @@
 import { API_PROVIDER_PRESETS } from '../utils/provider-presets';
 import type { ProviderPreset } from '../utils/provider-presets';
 import registry, { type ThemeId } from '../../shared/theme-registry';
+import { OPENZETCX_PRIMARY_DEFAULT_ROLE_ID } from '../../../../shared/openzetcx-role-presets.ts';
 
 export type { ProviderPreset } from '../utils/provider-presets';
 
-export const AGENT_ID = 'openZetcX';
+export const AGENT_ID = OPENZETCX_PRIMARY_DEFAULT_ROLE_ID;
 export const TOTAL_STEPS = 7;
 
 export const LOCALES = [

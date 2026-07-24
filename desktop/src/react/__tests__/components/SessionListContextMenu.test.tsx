@@ -1,7 +1,7 @@
 /**
  * @vitest-environment jsdom
  */
-import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import '@testing-library/jest-dom/vitest';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import fs from 'node:fs';
@@ -78,6 +78,7 @@ function seedSessions() {
     unreadOutputSessionPaths: [],
     browserBySession: {},
     locale: 'zh',
+    activeServerConnectionId: 'local',
   });
 }
 
@@ -148,6 +149,22 @@ describe('SessionList context menu', () => {
 
   afterEach(() => {
     cleanup();
+  });
+
+  it('waits for a server connection before loading sidebar UI preferences', async () => {
+    useStore.setState({ activeServerConnectionId: null });
+
+    render(<SessionList />);
+
+    expect(hanaFetchMock.mock.calls.some(([url]) => url === '/api/preferences/sidebar-ui')).toBe(false);
+
+    act(() => {
+      useStore.setState({ activeServerConnectionId: 'local' });
+    });
+
+    await waitFor(() => {
+      expect(hanaFetchMock).toHaveBeenCalledWith('/api/preferences/sidebar-ui');
+    });
   });
 
   it('keeps summaryless session rows readable and disables only the summary menu item', () => {

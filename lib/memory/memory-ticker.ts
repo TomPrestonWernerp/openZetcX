@@ -53,6 +53,7 @@ const DAILY_STEP_KEYS = ["compileToday", "compileWeek", "compileLongterm", "comp
  * @param {string} opts.configPath
  * @param {import('./fact-store.ts').FactStore} opts.factStore
  * @param {function} opts.getResolvedMemoryModel - 返回预解析的 { model, provider, api, api_key, base_url }
+ * @param {function} [opts.getResolvedMemoryFallbackModels] - 返回余额/配额错误时可尝试的备用模型
  * @param {function} [opts.onCompiled] - memory.md 更新后的回调
  * @param {string} opts.sessionDir
  * @param {string} opts.memoryMdPath
@@ -76,6 +77,7 @@ export function createMemoryTicker(opts) {
     summaryManager,
     factStore,
     getResolvedMemoryModel,
+    getResolvedMemoryFallbackModels,
     onCompiled,
     sessionDir,
     memoryMdPath,
@@ -96,6 +98,45 @@ export function createMemoryTicker(opts) {
     memoryDir = path.dirname(memoryMdPath),
   } = opts;
   const _memoryReflectionRunner = memoryReflectionRunner || { runMemoryReflection: defaultRunMemoryReflection };
+
+  function _resolvedModelKey(resolved) {
+    const model = resolved?.model;
+    const modelId = typeof model === "object" ? model?.id : model;
+    return `${resolved?.provider || ""}/${modelId || resolved?.id || ""}`;
+  }
+
+  function _isCapacityError(err) {
+    const status = Number(err?.status || err?.statusCode || err?.response?.status || 0);
+    const message = String(err?.message || err || "");
+    return status === 402
+      || status === 429
+      || /insufficient\s*(balance|credit)|余额不足|quota|配额|rate.?limit|too many requests/i.test(message);
+  }
+
+  async function _runWithResolvedMemoryModel(run) {
+    const primary = getResolvedMemoryModel();
+    try {
+      return await run(primary);
+    } catch (err) {
+      if (!_isCapacityError(err) || typeof getResolvedMemoryFallbackModels !== "function") throw err;
+      const seen = new Set([_resolvedModelKey(primary)]);
+      const fallbacks = getResolvedMemoryFallbackModels() || [];
+      let lastError = err;
+      for (const fallback of fallbacks) {
+        const key = _resolvedModelKey(fallback);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        try {
+          log.warn(`记忆模型 ${_resolvedModelKey(primary)} 余额或配额不可用，临时改用 ${key}`);
+          return await run(fallback);
+        } catch (fallbackError) {
+          lastError = fallbackError;
+          if (!_isCapacityError(fallbackError)) throw fallbackError;
+        }
+      }
+      throw lastError;
+    }
+  }
 
   /** agent 级总开关 */
   const _isMemoryMasterOn = () => !getMemoryMasterEnabled || getMemoryMasterEnabled();
@@ -614,41 +655,42 @@ export function createMemoryTicker(opts) {
       if (memoryReflectionSnapshot) {
         rollingOptions.memoryReflectionSnapshot = memoryReflectionSnapshot;
       }
-      const resolvedModel = getResolvedMemoryModel();
       const cacheSnapshotMode = _getCacheSnapshotReflectionMode();
-      if (cacheSnapshotMode === "write") {
-        try {
-          await _runSessionSnapshotMemoryReflection({
-            sessionPath,
-            sessionId,
-            messages,
-            resolvedModel,
-            rollingOptions,
-            mode: "write",
-            trigger,
-          });
-        } catch (err) {
-          if (!_isRecoverableSessionSnapshotUnavailable(err)) throw err;
-          debugLog()?.warn?.(
-            "memory",
-            `cache snapshot unavailable for ${path.basename(sessionPath)}; falling back to rolling summary`,
-          );
+      await _runWithResolvedMemoryModel(async (resolvedModel) => {
+        if (cacheSnapshotMode === "write") {
+          try {
+            await _runSessionSnapshotMemoryReflection({
+              sessionPath,
+              sessionId,
+              messages,
+              resolvedModel,
+              rollingOptions,
+              mode: "write",
+              trigger,
+            });
+          } catch (err) {
+            if (!_isRecoverableSessionSnapshotUnavailable(err)) throw err;
+            debugLog()?.warn?.(
+              "memory",
+              `cache snapshot unavailable for ${path.basename(sessionPath)}; falling back to rolling summary`,
+            );
+            await summaryManager.rollingSummary(sessionId, messages, resolvedModel, rollingOptions);
+          }
+        } else {
           await summaryManager.rollingSummary(sessionId, messages, resolvedModel, rollingOptions);
+          if (cacheSnapshotMode === "shadow") {
+            await _runSessionSnapshotMemoryReflection({
+              sessionPath,
+              sessionId,
+              messages,
+              resolvedModel,
+              rollingOptions,
+              mode: "shadow",
+              trigger,
+            });
+          }
         }
-      } else {
-        await summaryManager.rollingSummary(sessionId, messages, resolvedModel, rollingOptions);
-        if (cacheSnapshotMode === "shadow") {
-          await _runSessionSnapshotMemoryReflection({
-            sessionPath,
-            sessionId,
-            messages,
-            resolvedModel,
-            rollingOptions,
-            mode: "shadow",
-            trigger,
-          });
-        }
-      }
+      });
       debugLog()?.log("memory", `rolling summary updated: ${sessionId.slice(0, 8)}...`);
       _markSuccess("rollingSummary");
       _markStepRecovered("滚动摘要");
@@ -668,7 +710,9 @@ export function createMemoryTicker(opts) {
   async function _doCompileTodayAndAssemble() {
     try {
       const resetAt = _getCompiledResetAt();
-      await compileToday(summaryManager, todayMdPath, getResolvedMemoryModel(), { since: resetAt });
+      await _runWithResolvedMemoryModel(
+        (resolvedModel) => compileToday(summaryManager, todayMdPath, resolvedModel, { since: resetAt }),
+      );
       assemble(_factsSourcePath(), todayMdPath, weekMdPath, longtermMdPath, memoryMdPath);
       onCompiled?.();
       debugLog()?.log("memory", "today compiled + assembled");
@@ -696,7 +740,9 @@ export function createMemoryTicker(opts) {
       // Step 0: compileToday（日期切换后刷新 today.md，新一天无 session 时会清空）
       if (!_dailyStepsCompleted.has("compileToday")) {
         try {
-          await compileToday(summaryManager, todayMdPath, getResolvedMemoryModel(), { since: resetAt });
+          await _runWithResolvedMemoryModel(
+            (resolvedModel) => compileToday(summaryManager, todayMdPath, resolvedModel, { since: resetAt }),
+          );
           _markDailyStepCompleted("compileToday", context);
           _markSuccess("compileToday");
           _markStepRecovered("compileToday(daily)");
@@ -710,7 +756,9 @@ export function createMemoryTicker(opts) {
       // Step 1: compileWeek
       if (!_dailyStepsCompleted.has("compileWeek")) {
         try {
-          await compileWeek(summaryManager, weekMdPath, getResolvedMemoryModel(), { since: resetAt });
+          await _runWithResolvedMemoryModel(
+            (resolvedModel) => compileWeek(summaryManager, weekMdPath, resolvedModel, { since: resetAt }),
+          );
           _markDailyStepCompleted("compileWeek", context);
           _markSuccess("compileWeek");
           _markStepRecovered("compileWeek");
@@ -724,7 +772,9 @@ export function createMemoryTicker(opts) {
       // Step 2: compileLongterm（依赖 compileWeek 产出的 week.md，必须等 compileWeek 完成）
       if (!_dailyStepsCompleted.has("compileLongterm") && _dailyStepsCompleted.has("compileWeek")) {
         try {
-          await compileLongterm(weekMdPath, longtermMdPath, getResolvedMemoryModel());
+          await _runWithResolvedMemoryModel(
+            (resolvedModel) => compileLongterm(weekMdPath, longtermMdPath, resolvedModel),
+          );
           _markDailyStepCompleted("compileLongterm", context);
           _markSuccess("compileLongterm");
           _markStepRecovered("compileLongterm");
@@ -739,12 +789,16 @@ export function createMemoryTicker(opts) {
       if (!_dailyStepsCompleted.has("compileFacts")) {
         try {
           if (_isEditableMemoryOn()) {
-            await compileEditableFacts(summaryManager, editableFactsPath(memoryDir), getResolvedMemoryModel(), {
-              since: resetAt,
-              seedFactsPath: factsMdPath,
-            });
+            await _runWithResolvedMemoryModel(
+              (resolvedModel) => compileEditableFacts(summaryManager, editableFactsPath(memoryDir), resolvedModel, {
+                since: resetAt,
+                seedFactsPath: factsMdPath,
+              }),
+            );
           } else {
-            await compileFacts(summaryManager, factsMdPath, getResolvedMemoryModel(), { since: resetAt });
+            await _runWithResolvedMemoryModel(
+              (resolvedModel) => compileFacts(summaryManager, factsMdPath, resolvedModel, { since: resetAt }),
+            );
           }
           _markDailyStepCompleted("compileFacts", context);
           _markSuccess("compileFacts");
@@ -768,12 +822,14 @@ export function createMemoryTicker(opts) {
       // Step 5: deep-memory（独立，更新 facts.db）
       if (!_dailyStepsCompleted.has("deepMemory")) {
         try {
-          const { processed, factsAdded } = await processDirtySessions(
-            summaryManager, factStore, getResolvedMemoryModel(), {
+          const { processed, factsAdded } = await _runWithResolvedMemoryModel(
+            (resolvedModel) => processDirtySessions(
+              summaryManager, factStore, resolvedModel, {
               since: resetAt,
               timeZone: _getTimezone(),
               getSourceTimeRange: _createSourceTimeRangeResolver(),
-            },
+              },
+            ),
           );
           _markDailyStepCompleted("deepMemory", context);
           if (processed > 0) {

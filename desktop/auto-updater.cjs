@@ -2,8 +2,8 @@
  * auto-updater.cjs — electron-updater 集成
  *
  * 行为：启动时静默检查 → 静默下载 → renderer 展示状态 → 页内触发安装。
- * Windows 安装时由 NSIS installer 负责关闭旧进程和覆盖安装；这里不等待 server
- * graceful shutdown，避免“重启更新”点击后长时间无反馈。
+ * Windows 安装前先请求 desktop 有界关闭内置 server，再由 NSIS installer
+ * 兜底清理残留进程。这样可避免更新后旧 server 继续占用固定端口。
  * 频道：Stable（allowPrerelease=false）/ Preview（allowPrerelease=true）。
  */
 const { ipcMain, app, BrowserWindow } = require("electron");
@@ -16,6 +16,7 @@ const CHECK_INTERVAL = 4 * 60 * 60 * 1000; // 4 小时
 let _mainWindow = null;
 let _setIsUpdating = null;  // 由 main.cjs 注入
 let _openZetcXHome = null;     // 由 main.cjs 注入
+let _prepareForInstall = null; // 由 main.cjs 注入（有界关闭内置 server）
 let _checkTimer = null;
 let _ipcHandlersRegistered = false;
 let _updaterConfigured = false;
@@ -144,6 +145,17 @@ async function installDownloadedUpdate(source = "manual") {
     setState({ status: "installing", version, progress: null, error: null });
 
     try {
+      if (_prepareForInstall) {
+        try {
+          logUpdate("preparing runtime for update install");
+          await _prepareForInstall();
+          logUpdate("runtime prepared for update install");
+        } catch (err) {
+          // The NSIS process cleanup remains the final fallback. Do not strand
+          // a fully downloaded update if graceful server shutdown failed.
+          logUpdate(`runtime prepare failed; continuing with installer cleanup: ${err?.message || String(err)}`);
+        }
+      }
       // Defer one tick so the IPC/state handoff finishes before electron-updater
       // closes windows and starts the NSIS installer.
       return await invokeQuitAndInstallSoon();
@@ -438,11 +450,14 @@ function startPolling() {
 // ── 公共 API ──
 
 function initAutoUpdater(mainWindow, {
-  setIsUpdating, openZetcXHome,
+  setIsUpdating, openZetcXHome, prepareForInstall,
 } = {}) {
   _mainWindow = mainWindow;
   _setIsUpdating = setIsUpdating;
   _openZetcXHome = openZetcXHome;
+  if (prepareForInstall !== undefined) {
+    _prepareForInstall = typeof prepareForInstall === "function" ? prepareForInstall : null;
+  }
 
   registerIpcHandlers(); // IPC handlers 是进程级单例，重复 init 时直接复用
 

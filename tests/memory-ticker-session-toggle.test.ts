@@ -3,7 +3,7 @@ import os from "os";
 import fs from "fs";
 import path from "path";
 
-vi.mock("../lib/memory/compile.js", () => ({
+vi.mock("../lib/memory/compile.ts", () => ({
   compileToday: vi.fn().mockResolvedValue("compiled"),
   compileWeek: vi.fn().mockResolvedValue("compiled"),
   compileLongterm: vi.fn().mockResolvedValue("compiled"),
@@ -11,11 +11,11 @@ vi.mock("../lib/memory/compile.js", () => ({
   assemble: vi.fn(),
 }));
 
-vi.mock("../lib/memory/deep-memory.js", () => ({
+vi.mock("../lib/memory/deep-memory.ts", () => ({
   processDirtySessions: vi.fn().mockResolvedValue({ processed: 0, factsAdded: 0 }),
 }));
 
-vi.mock("../lib/debug-log.js", () => ({
+vi.mock("../lib/debug-log.ts", () => ({
   debugLog: () => null,
   createModuleLogger: () => ({
     log: vi.fn(),

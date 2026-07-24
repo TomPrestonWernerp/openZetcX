@@ -5,6 +5,7 @@ import { hanaFetch } from '../api';
 import { invalidateConfigCache } from '../../hooks/use-config';
 import { t } from '../helpers';
 import { loadSettingsConfig } from '../actions';
+import { useStore } from '../../stores';
 import { SettingsSection } from '../components/SettingsSection';
 import { SettingsRow } from '../components/SettingsRow';
 import styles from '../Settings.module.css';
@@ -27,9 +28,10 @@ export function MeTab() {
   const save = async () => {
     const store = useSettingsStore.getState();
     try {
+      const trimmedUserName = userName.trim();
       const partial: Record<string, any> = {};
-      if (userName && userName !== (settingsConfig?.user?.name || '')) {
-        partial.user = { name: userName };
+      if (trimmedUserName && trimmedUserName !== (settingsConfig?.user?.name || '')) {
+        partial.user = { name: trimmedUserName };
       }
       const profileChanged = userProfile !== (settingsConfig?._userProfile || '');
 
@@ -40,7 +42,9 @@ export function MeTab() {
 
       const requests: Promise<Response>[] = [];
       if (Object.keys(partial).length) {
-        requests.push(hanaFetch('/api/config', {
+        const agentId = store.getSettingsAgentId();
+        if (!agentId) throw new Error('No settings agent selected');
+        requests.push(hanaFetch(`/api/agents/${encodeURIComponent(agentId)}/config`, {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(partial),
@@ -61,7 +65,13 @@ export function MeTab() {
       }
 
       showToast(t('settings.saved'), 'success');
-      if (partial?.user?.name) store.set({ userName: partial.user.name });
+      if (partial?.user?.name) {
+        store.set({ userName: partial.user.name });
+        // Settings can render inside the main window or in its own BrowserWindow.
+        // Updating this store gives the embedded modal immediate consistency;
+        // the server app_event below keeps every other renderer in sync.
+        useStore.setState({ userName: partial.user.name });
+      }
       if (Object.keys(partial).length) invalidateConfigCache();
 
       await loadSettingsConfig();

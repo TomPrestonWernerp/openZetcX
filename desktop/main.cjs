@@ -1024,6 +1024,23 @@ async function startServer() {
       lastErr = err;
       const portConflict = parsePortInUseStartupError(_serverLogs);
       if (portConflict) {
+        // A stale server can survive an update when security software delays
+        // process termination or blocks the installer's process scan. Keep the
+        // desktop usable by binding the same host on an ephemeral port; the
+        // actual port is published through server-info.json.
+        console.warn(
+          `[desktop] configured server port ${portConflict.port || "unknown"} is occupied; `
+          + "retrying once with an ephemeral port",
+        );
+        try {
+          await _spawnServerOnce(serverInfoPath, { portOverride: 0 });
+          console.log(`[desktop] Server fallback port ready: ${serverPort}`);
+          return;
+        } catch (fallbackErr) {
+          lastErr = fallbackErr;
+          const fallbackPortConflict = parsePortInUseStartupError(_serverLogs);
+          if (!fallbackPortConflict) throw fallbackErr;
+        }
         const friendly = new Error(formatPortInUseStartupError(portConflict));
         friendly.code = "PORT_IN_USE";
         friendly.startupError = portConflict;
@@ -1057,7 +1074,7 @@ async function startServer() {
  * 实际执行 spawn + 等待 server-info.json 的内部函数。
  * 失败由 startServer 决定是否重试；本函数只负责单次启动。
  */
-async function _spawnServerOnce(serverInfoPath) {
+async function _spawnServerOnce(serverInfoPath, { portOverride = null } = {}) {
   _serverLogs = [];
   _lastServerProgressAtMs = null;
   reusedServerPid = null;
@@ -1071,6 +1088,9 @@ async function _spawnServerOnce(serverInfoPath) {
     HANA_DESKTOP_EXEC_PATH: process.execPath,
     HANA_DESKTOP_APP_PATH: app.getAppPath(),
     HANA_DESKTOP_IS_PACKAGED: app.isPackaged ? "1" : "0",
+    ...(Number.isInteger(portOverride) && portOverride >= 0
+      ? { HANA_PORT: String(portOverride), HANA_PORT_FALLBACK: "1" }
+      : {}),
   };
   serverEnv = await serverEnvironmentForNetworkProxy(serverEnv);
 
@@ -1801,6 +1821,10 @@ function createMainWindow() {
     initAutoUpdater(mainWindow, {
       setIsUpdating: (v) => { _isUpdating = v; },
       openZetcXHome,
+      prepareForInstall: async () => {
+        isExitingServer = true;
+        await shutdownServer();
+      },
     });
     _autoUpdaterInitialized = true;
   } else {

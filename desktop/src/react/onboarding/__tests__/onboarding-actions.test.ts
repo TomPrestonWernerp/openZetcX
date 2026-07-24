@@ -31,7 +31,7 @@ describe('onboarding saveModel', () => {
 
     const providerSaveCall = hanaFetch.mock.calls.find(([path, options]) => {
       const body = JSON.parse(String(options?.body));
-      return path === '/api/agents/hanako/config' && body.providers;
+      return path === '/api/agents/general/config' && body.providers;
     });
 
     expect(providerSaveCall).toBeTruthy();
@@ -40,6 +40,11 @@ describe('onboarding saveModel', () => {
       'deepseek-v4-flash',
       { id: 'deepseek-v4-pro', name: 'DeepSeek V4 Pro', audio: true },
     ]);
+    expect(body.models.chat).toEqual({
+      id: 'deepseek-v4-pro',
+      provider: 'deepseek',
+    });
+    expect(hanaFetch.mock.calls.filter(([path]) => path === '/api/agents/general/config')).toHaveLength(1);
   });
 });
 
@@ -54,7 +59,7 @@ describe('onboarding saveOnboardingIdentity', () => {
       memoryEnabled: true,
     });
 
-    expect(hanaFetch).toHaveBeenCalledWith('/api/agents/hanako/config', {
+    expect(hanaFetch).toHaveBeenCalledWith('/api/agents/general/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -96,7 +101,7 @@ describe('onboarding saveWorkspace', () => {
     expect(hanaFetch).toHaveBeenNthCalledWith(1, '/api/config/default-workspace', {
       method: 'POST',
     });
-    expect(hanaFetch).toHaveBeenNthCalledWith(2, '/api/agents/hanako/config', {
+    expect(hanaFetch).toHaveBeenNthCalledWith(2, '/api/agents/general/config', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
