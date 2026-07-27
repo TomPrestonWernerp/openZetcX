@@ -1,160 +1,149 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSettingsStore } from '../store';
 import { hanaFetch } from '../api';
 import { t } from '../helpers';
 import { SettingsSection } from '../components/SettingsSection';
-import { renderMarkdown } from '../../utils/markdown';
 import styles from '../Settings.module.css';
 
-interface MarketplacePlugin {
-  id: string;
-  name: string;
-  publisher?: string;
-  version?: string;
+interface YuxiSkill {
+  id?: number | string;
+  slug: string;
+  name?: string;
   description?: string;
-  trust?: 'restricted' | 'full-access';
-  permissions?: string[];
-  contributions?: string[];
-  repository?: string | null;
-  compatibility?: { minAppVersion?: string; hanaApi?: string };
-  distribution?: { kind?: 'source' | 'release'; path?: string; packageUrl?: string; sha256?: string } | null;
-  installed?: boolean;
-  installedVersion?: string | null;
-  latestVersion?: string | null;
-  selectedVersion?: string | null;
-  updateAvailable?: boolean;
-  downgrade?: boolean;
-  reinstall?: boolean;
-  compatible?: boolean;
-  canInstall?: boolean;
-  installAction?: 'install' | 'update' | 'downgrade' | 'reinstall' | 'incompatible';
+  version?: string;
+  source_type?: string;
+  created_by?: string;
+  updated_at?: string;
+  enabled?: boolean;
+  is_builtin?: boolean;
+  can_manage?: boolean;
+  tool_dependencies?: string[];
+  mcp_dependencies?: string[];
+  skill_dependencies?: string[];
+  share_config?: {
+    access_level?: 'global' | 'department' | 'user' | string;
+    department_ids?: Array<number | string>;
+    user_uids?: string[];
+  };
 }
 
-interface MarketplaceResponse {
-  source?: { kind?: string; configured?: boolean; path?: string; url?: string };
-  plugins: MarketplacePlugin[];
-  warnings?: string[];
+interface YuxiSession {
+  authenticated: boolean;
+  baseUrl?: string;
+  user?: {
+    username?: string;
+    uid?: string;
+    department_name?: string | null;
+  } | null;
 }
 
-function marketVersion(plugin: MarketplacePlugin): string {
-  return plugin.selectedVersion || plugin.latestVersion || plugin.version || '0.0.0';
-}
-
-function marketInstallLabel(plugin: MarketplacePlugin): string {
-  if (plugin.compatible === false || plugin.installAction === 'incompatible') return t('settings.plugins.marketIncompatible');
-  if (plugin.installAction === 'downgrade') return t('settings.plugins.marketDowngrade');
-  if (plugin.installAction === 'reinstall') return t('settings.plugins.marketReinstall');
-  if (plugin.installAction === 'update' || plugin.updateAvailable) return t('settings.plugins.marketUpdate');
-  return t('settings.plugins.marketInstall');
-}
-
-function marketVersionStatus(plugin: MarketplacePlugin): string | null {
-  if (plugin.compatible === false || plugin.installAction === 'incompatible') return t('settings.plugins.marketIncompatible');
-  if (plugin.installAction === 'downgrade') {
-    return t('settings.plugins.marketDowngradeTo', { version: marketVersion(plugin) });
+function accessLabel(skill: YuxiSkill, zh: boolean): string {
+  switch (skill.share_config?.access_level) {
+    case 'global':
+      return zh ? '公司 / 全局' : 'Company / Global';
+    case 'department':
+      return zh ? '部门' : 'Department';
+    case 'user':
+      return zh ? '个人' : 'Personal';
+    default:
+      return zh ? '账号可访问' : 'Accessible';
   }
-  if (plugin.updateAvailable && plugin.installedVersion) {
-    return t('settings.plugins.marketUpdateFrom', {
-      from: plugin.installedVersion,
-      to: marketVersion(plugin),
-    });
-  }
-  if (plugin.installedVersion) return t('settings.plugins.marketInstalledVersion', { version: plugin.installedVersion });
-  return null;
+}
+
+function skillDependencies(skill: YuxiSkill): string[] {
+  return [
+    ...(skill.tool_dependencies || []).map(item => `Tool · ${item}`),
+    ...(skill.mcp_dependencies || []).map(item => `MCP · ${item}`),
+    ...(skill.skill_dependencies || []).map(item => `Skill · ${item}`),
+  ];
 }
 
 export function PluginMarketplaceTab() {
-  const showToast = useSettingsStore(s => s.showToast);
-  const set = useSettingsStore(s => s.set);
-  const [marketplace, setMarketplace] = useState<MarketplaceResponse | null>(null);
-  const [marketplaceLoading, setMarketplaceLoading] = useState(false);
-  const [selectedPlugin, setSelectedPlugin] = useState<MarketplacePlugin | null>(null);
-  const [readme, setReadme] = useState('');
-  const [readmeLoading, setReadmeLoading] = useState(false);
-  const [installingPluginId, setInstallingPluginId] = useState<string | null>(null);
+  const showToast = useSettingsStore(state => state.showToast);
+  const set = useSettingsStore(state => state.set);
+  const zh = (window.i18n?.locale || 'zh-CN').toLowerCase().startsWith('zh');
+  const [session, setSession] = useState<YuxiSession | null>(null);
+  const [skills, setSkills] = useState<YuxiSkill[] | null>(null);
+  const [selectedSlug, setSelectedSlug] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [installingSlug, setInstallingSlug] = useState('');
+  const [syncedSlugs, setSyncedSlugs] = useState<Set<string>>(() => new Set());
+  const [error, setError] = useState('');
 
-  const loadReadme = useCallback(async (plugin: MarketplacePlugin) => {
-    setSelectedPlugin(plugin);
-    setReadme('');
-    setReadmeLoading(true);
-    try {
-      const res = await hanaFetch(`/api/plugins/marketplace/${encodeURIComponent(plugin.id)}/readme`);
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      setReadme(data.markdown || '');
-    } catch (err: unknown) {
-      showToast(t('settings.plugins.marketReadmeLoadError') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
-    } finally {
-      setReadmeLoading(false);
-    }
-  }, [showToast]);
+  const selectedSkill = useMemo(
+    () => skills?.find(skill => skill.slug === selectedSlug) || skills?.[0] || null,
+    [selectedSlug, skills],
+  );
 
   const loadMarketplace = useCallback(async () => {
-    setMarketplaceLoading(true);
+    setLoading(true);
+    setError('');
     try {
-      const res = await hanaFetch('/api/plugins/marketplace');
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      const plugins = Array.isArray(data.plugins) ? data.plugins : [];
-      const next = {
-        source: data.source || {},
-        plugins,
-        warnings: Array.isArray(data.warnings) ? data.warnings : [],
-      };
-      setMarketplace(next);
-      if (plugins.length > 0) {
-        await loadReadme(plugins[0]);
-      } else {
-        setSelectedPlugin(null);
-        setReadme('');
+      const sessionResponse = await hanaFetch('/api/yuxi/session?verify=1', { timeout: 8_000 });
+      const nextSession = await sessionResponse.json() as YuxiSession;
+      setSession(nextSession);
+      if (!nextSession.authenticated) {
+        setSkills([]);
+        setSelectedSlug('');
+        return;
       }
-    } catch (err: unknown) {
-      showToast(t('settings.plugins.marketLoadError') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+
+      const response = await hanaFetch('/api/yuxi/skills');
+      const data = await response.json();
+      const nextSkills = Array.isArray(data.skills) ? data.skills as YuxiSkill[] : [];
+      setSkills(nextSkills);
+      setSelectedSlug(current => (
+        current && nextSkills.some(skill => skill.slug === current)
+          ? current
+          : nextSkills[0]?.slug || ''
+      ));
+    } catch (loadError) {
+      const message = loadError instanceof Error ? loadError.message : String(loadError);
+      setError(message);
+      setSkills([]);
+      showToast(`${zh ? 'Yuxi Skill 市场加载失败' : 'Yuxi Skill Marketplace failed to load'}: ${message}`, 'error');
     } finally {
-      setMarketplaceLoading(false);
+      setLoading(false);
     }
-  }, [loadReadme, showToast]);
+  }, [showToast, zh]);
 
   useEffect(() => {
-    loadMarketplace();
+    void loadMarketplace();
   }, [loadMarketplace]);
 
-  const installPlugin = async (plugin: MarketplacePlugin) => {
-    const allowDowngrade = plugin.installAction === 'downgrade'
-      ? window.confirm(t('settings.plugins.marketDowngradeConfirm', {
-          from: plugin.installedVersion || '',
-          to: marketVersion(plugin),
-        }))
-      : false;
-    if (plugin.installAction === 'downgrade' && !allowDowngrade) return;
-
-    setInstallingPluginId(plugin.id);
+  async function installSkill(skill: YuxiSkill) {
+    setInstallingSlug(skill.slug);
+    setError('');
     try {
-      const res = await hanaFetch(`/api/plugins/marketplace/${encodeURIComponent(plugin.id)}/install`, {
+      const response = await hanaFetch(`/api/yuxi/skills/${encodeURIComponent(skill.slug)}/install`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          version: plugin.selectedVersion || undefined,
-          allowDowngrade,
-        }),
+        body: '{}',
+        timeout: 120_000,
       });
-      const data = await res.json();
-      if (data.error) throw new Error(data.error);
-      showToast(t('settings.plugins.installSuccess', { name: data.name || plugin.name }), 'success');
-      await loadMarketplace();
-    } catch (err: unknown) {
-      showToast(t('settings.plugins.installError') + ': ' + (err instanceof Error ? err.message : String(err)), 'error');
+      const data = await response.json();
+      const skillName = data.skill?.name || skill.name || skill.slug;
+      setSyncedSlugs(current => new Set(current).add(skill.slug));
+      showToast(
+        zh ? `Skill“${skillName}”已安装 / 同步到本地` : `Skill “${skillName}” installed / synced locally`,
+        'success',
+      );
+    } catch (installError) {
+      const message = installError instanceof Error ? installError.message : String(installError);
+      setError(message);
+      showToast(`${zh ? 'Skill 安装失败' : 'Skill installation failed'}: ${message}`, 'error');
     } finally {
-      setInstallingPluginId(null);
+      setInstallingSlug('');
     }
-  };
+  }
 
-  const statusText = marketplace?.source?.configured
-    ? t('settings.plugins.marketplaceCount', { count: String(marketplace.plugins.length) })
-    : t('settings.plugins.marketplaceNoSource');
+  const accountName = session?.user?.username || session?.user?.uid || '';
+  const statusText = skills
+    ? `${skills.length} ${zh ? '个 Skill' : skills.length === 1 ? 'Skill' : 'Skills'}${accountName ? ` · ${accountName}` : ''}`
+    : '';
 
   return (
-    <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="plugin-marketplace">
+    <div className={`${styles['settings-tab-content']} ${styles.active}`} data-tab="plugin-marketplace">
       <div className={styles['plugin-marketplace-toolbar']}>
         <button
           type="button"
@@ -167,24 +156,30 @@ export function PluginMarketplaceTab() {
             <path d="M15 18l-6-6 6-6" />
           </svg>
         </button>
-        <span className={styles['skills-list-desc']}>{t('settings.plugins.marketplaceHint')}</span>
+        <span className={styles['skills-list-desc']}>
+          {zh
+            ? '浏览当前 Yuxi 账号有权访问的 Skill，并安装或同步到本地。'
+            : 'Browse Skills available to the current Yuxi account and install or sync them locally.'}
+        </span>
         <div className={styles['plugin-marketplace-toolbar-actions']}>
-          {marketplace && (
-            <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>
-              {statusText}
-            </span>
+          {skills && (
+            <>
+              <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>Yuxi</span>
+              <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>{statusText}</span>
+            </>
           )}
           <button
             type="button"
             className={styles['settings-icon-btn']}
-            title={t('settings.plugins.openMarketplace')}
-            onClick={loadMarketplace}
-            disabled={marketplaceLoading}
+            title={zh ? '刷新 Yuxi Skill' : 'Refresh Yuxi Skills'}
+            aria-label={zh ? '刷新 Yuxi Skill' : 'Refresh Yuxi Skills'}
+            onClick={() => void loadMarketplace()}
+            disabled={loading}
           >
             <svg
               width="14" height="14" viewBox="0 0 24 24" fill="none"
               stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"
-              className={marketplaceLoading ? styles['spin'] : ''}
+              className={loading ? styles.spin : ''}
             >
               <polyline points="23 4 23 10 17 10" />
               <path d="M20.49 15a9 9 0 1 1-2.12-9.36L23 10" />
@@ -194,108 +189,139 @@ export function PluginMarketplaceTab() {
       </div>
 
       <SettingsSection variant="flush">
-        {!marketplace ? (
+        {skills === null ? (
           <p className={`${styles['settings-muted-note']} ${styles['skills-empty']}`}>
-            {t('settings.plugins.marketLoading')}
+            {zh ? '正在读取 Yuxi Skill 市场…' : 'Loading Yuxi Skill Marketplace…'}
+          </p>
+        ) : !session?.authenticated ? (
+          <div className={styles['plugin-marketplace-empty-state']}>
+            <strong>{zh ? '请先登录 Yuxi' : 'Sign in to Yuxi first'}</strong>
+            <span>
+              {zh
+                ? '登录后，这里会显示该账号在公司、部门及个人范围内可访问的 Skill。'
+                : 'After sign-in, Skills available at company, department, and personal scopes appear here.'}
+            </span>
+            <button type="button" className={styles['settings-save-btn-sm']} onClick={() => set({ activeTab: 'yuxi' })}>
+              {zh ? '前往 Yuxi 登录' : 'Go to Yuxi sign-in'}
+            </button>
+          </div>
+        ) : error ? (
+          <div className={styles['plugin-marketplace-empty-state']}>
+            <strong>{zh ? 'Yuxi Skill 加载失败' : 'Failed to load Yuxi Skills'}</strong>
+            <span>{error}</span>
+            <button type="button" className={styles['settings-save-btn-sm']} onClick={() => void loadMarketplace()}>
+              {zh ? '重试' : 'Retry'}
+            </button>
+          </div>
+        ) : skills.length === 0 ? (
+          <p className={`${styles['settings-muted-note']} ${styles['skills-empty']}`}>
+            {zh ? '当前账号没有可访问的 Skill。' : 'This account has no accessible Skills.'}
           </p>
         ) : (
-          <>
-            {marketplace.warnings && marketplace.warnings.length > 0 && (
-              <p className={`${styles['settings-muted-note']} ${styles['skills-empty']}`} style={{ color: 'var(--danger, #c55)' }}>
-                {marketplace.warnings[0]}
-              </p>
-            )}
-            {marketplace.plugins.length === 0 ? (
-              <p className={`${styles['settings-muted-note']} ${styles['skills-empty']}`}>
-                {t('settings.plugins.marketplaceEmpty')}
-              </p>
-            ) : (
-              <div className={styles['plugin-marketplace-grid']}>
-                <div className={styles['skills-list-block']}>
-                  {marketplace.plugins.map(plugin => (
-                    <div
-                      key={plugin.id}
-                      className={styles['skills-list-item']}
-                      onClick={() => loadReadme(plugin)}
-                      style={selectedPlugin?.id === plugin.id ? { background: 'var(--bg-hover)' } : undefined}
-                    >
-                      <div className={styles['skills-list-info']}>
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                          <span className={styles['skills-list-name']}>{plugin.name}</span>
-                          <span className={styles['skills-list-name-hint']}>v{marketVersion(plugin)}</span>
-                          {plugin.installed && (
-                            <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>
-                              {t('settings.plugins.marketInstalled')}
-                            </span>
-                          )}
-                          {plugin.updateAvailable && (
-                            <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>
-                              {t('settings.plugins.marketUpdateAvailable')}
-                            </span>
-                          )}
-                        </div>
-                        {plugin.description && <span className={styles['skills-list-desc']}>{plugin.description}</span>}
-                        <span className={styles['skills-list-desc']}>
-                          {(plugin.publisher || 'unknown') + ' · ' + (plugin.trust || 'restricted')}
-                        </span>
-                      </div>
-                    </div>
-                  ))}
-                </div>
+          <div className={styles['plugin-marketplace-grid']}>
+            <div className={styles['skills-list-block']}>
+              {skills.map(skill => (
+                <button
+                  type="button"
+                  key={skill.slug}
+                  className={`${styles['skills-list-item']} ${styles['plugin-marketplace-skill-row']}`}
+                  onClick={() => setSelectedSlug(skill.slug)}
+                  aria-pressed={selectedSkill?.slug === skill.slug}
+                  style={selectedSkill?.slug === skill.slug ? { background: 'var(--bg-hover)' } : undefined}
+                >
+                  <span className={styles['plugin-marketplace-skill-icon']}>S</span>
+                  <span className={styles['skills-list-info']}>
+                    <span className={styles['plugin-marketplace-skill-title']}>
+                      <span className={styles['skills-list-name']}>{skill.name || skill.slug}</span>
+                      {skill.version && <span className={styles['skills-list-name-hint']}>v{skill.version}</span>}
+                    </span>
+                    <span className={styles['skills-list-desc']}>{skill.description || (zh ? '暂无描述' : 'No description')}</span>
+                    <span className={styles['skills-list-desc']}>
+                      {accessLabel(skill, zh)} · {skill.slug}
+                    </span>
+                  </span>
+                </button>
+              ))}
+            </div>
 
-                <div className={styles['skills-list-block']}>
-                  <div className={styles['skills-list-item']} style={{ alignItems: 'flex-start', cursor: 'default' }}>
-                    <div className={styles['skills-list-info']} style={{ gap: 'var(--space-8)', width: '100%' }}>
-                      {selectedPlugin ? (
-                        <>
-                          <div className={styles['plugin-marketplace-detail-header']}>
-                            <div style={{ minWidth: 0 }}>
-                              <div className={styles['skills-list-name']}>{selectedPlugin.name}</div>
-                              <div className={styles['skills-list-desc']}>
-                                {(selectedPlugin.publisher || 'unknown') + ' · v' + marketVersion(selectedPlugin)}
-                              </div>
-                              {marketVersionStatus(selectedPlugin) && (
-                                <div className={styles['skills-list-desc']}>
-                                  {marketVersionStatus(selectedPlugin)}
-                                </div>
-                              )}
-                            </div>
-                            <button
-                              className={styles['settings-save-btn-sm']}
-                              disabled={!selectedPlugin.canInstall || installingPluginId === selectedPlugin.id}
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                installPlugin(selectedPlugin);
-                              }}
-                            >
-                              {marketInstallLabel(selectedPlugin)}
-                            </button>
-                          </div>
-                          <div style={{ display: 'flex', gap: 4, flexWrap: 'wrap' }}>
-                            {(selectedPlugin.contributions || []).map(item => (
-                              <span key={item} className={styles['skills-source-badge']} style={{ marginRight: 0 }}>
-                                {item}
-                              </span>
-                            ))}
-                          </div>
-                          <div
-                            className={`preview-markdown ${styles['plugin-marketplace-readme']}`}
-                            dangerouslySetInnerHTML={{
-                              __html: readmeLoading
-                                ? `<p>${t('settings.plugins.marketReadmeLoading')}</p>`
-                                : renderMarkdown(readme || selectedPlugin.description || ''),
-                            }}
-                          />
-                        </>
-                      ) : (
-                        <span className={styles['skills-list-desc']}>{t('settings.plugins.marketSelectPlugin')}</span>
+            <div className={styles['skills-list-block']}>
+              <div className={styles['plugin-marketplace-skill-detail']}>
+                {selectedSkill && (
+                  <>
+                    <div className={styles['plugin-marketplace-detail-header']}>
+                      <div style={{ minWidth: 0 }}>
+                        <div className={styles['skills-list-name']}>{selectedSkill.name || selectedSkill.slug}</div>
+                        <div className={styles['skills-list-desc']}>
+                          {selectedSkill.slug}
+                          {selectedSkill.version ? ` · v${selectedSkill.version}` : ''}
+                        </div>
+                      </div>
+                      <button
+                        type="button"
+                        className={styles['settings-save-btn-sm']}
+                        disabled={installingSlug === selectedSkill.slug}
+                        onClick={() => void installSkill(selectedSkill)}
+                      >
+                        {installingSlug === selectedSkill.slug
+                          ? (zh ? '正在同步…' : 'Syncing…')
+                          : syncedSlugs.has(selectedSkill.slug)
+                            ? (zh ? '重新同步到本地' : 'Sync again')
+                            : (zh ? '安装 / 同步到本地' : 'Install / sync locally')}
+                      </button>
+                    </div>
+
+                    <div className={styles['plugin-marketplace-scope-row']}>
+                      <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>
+                        {accessLabel(selectedSkill, zh)}
+                      </span>
+                      {selectedSkill.is_builtin && (
+                        <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>
+                          {zh ? 'Yuxi 内置' : 'Built into Yuxi'}
+                        </span>
+                      )}
+                      {syncedSlugs.has(selectedSkill.slug) && (
+                        <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>
+                          {zh ? '本次已同步' : 'Synced'}
+                        </span>
                       )}
                     </div>
-                  </div>
-                </div>
+
+                    <div className={styles['plugin-marketplace-description']}>
+                      {selectedSkill.description || (zh ? '暂无描述' : 'No description')}
+                    </div>
+
+                    <div className={styles['plugin-marketplace-metadata']}>
+                      <div>
+                        <span>{zh ? '发布者' : 'Publisher'}</span>
+                        <strong>{selectedSkill.created_by || 'Yuxi'}</strong>
+                      </div>
+                      <div>
+                        <span>{zh ? '来源' : 'Source'}</span>
+                        <strong>{selectedSkill.source_type || 'Yuxi'}</strong>
+                      </div>
+                      <div>
+                        <span>{zh ? '可见范围' : 'Visibility'}</span>
+                        <strong>{accessLabel(selectedSkill, zh)}</strong>
+                      </div>
+                    </div>
+
+                    <div>
+                      <div className={styles['plugin-marketplace-section-title']}>
+                        {zh ? '运行依赖' : 'Runtime dependencies'}
+                      </div>
+                      <div className={styles['plugin-marketplace-scope-row']}>
+                        {skillDependencies(selectedSkill).length
+                          ? skillDependencies(selectedSkill).map(item => (
+                              <span key={item} className={styles['skills-source-badge']} style={{ marginRight: 0 }}>{item}</span>
+                            ))
+                          : <span className={styles['skills-list-desc']}>{zh ? '无额外依赖' : 'No additional dependencies'}</span>}
+                      </div>
+                    </div>
+                  </>
+                )}
               </div>
-            )}
-          </>
+            </div>
+          </div>
         )}
       </SettingsSection>
     </div>

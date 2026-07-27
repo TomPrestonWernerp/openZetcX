@@ -1,0 +1,124 @@
+.root {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 7px 8px 9px;
+  border-top: 1px solid var(--overlay-light);
+  background: var(--sidebar-bg, var(--bg));
+  flex-shrink: 0;
+  -webkit-app-region: no-drag;
+}
+
+.identity {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  flex: 1;
+  gap: 9px;
+  padding: 5px 6px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.identity:hover,
+.updateButton:hover {
+  background: var(--bg-hover);
+}
+
+.avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
+  border-radius: 50%;
+  background: linear-gradient(145deg, color-mix(in srgb, var(--accent) 86%, #fff), var(--accent));
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.text {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.text strong,
+.text small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.text strong {
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.text small {
+  color: var(--text-muted);
+  font-size: 9px;
+}
+
+.text small.feedback {
+  color: var(--accent);
+}
+
+.verified {
+  width: 6px;
+  height: 6px;
+  flex: 0 0 6px;
+  border: 1px solid color-mix(in srgb, #2da66a 62%, var(--bg));
+  border-radius: 50%;
+  background: #39b975;
+}
+
+.updateButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  flex: 0 0 30px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.updateButton:disabled {
+  cursor: default;
+  opacity: .6;
+}
+
+.spin {
+  animation: yuxi-footer-spin .8s linear infinite;
+}
+
+.liveStatus {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@keyframes yuxi-footer-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

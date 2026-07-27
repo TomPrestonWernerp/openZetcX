@@ -6,6 +6,7 @@ import { RegionalErrorBoundary } from '../RegionalErrorBoundary';
 import { SessionList } from '../SessionList';
 import { SidebarNoticeSlot } from '../notices/SidebarNoticeSlot';
 import { SidebarUpdateAction } from '../notices/SidebarUpdateAction';
+import { YuxiAccountFooter } from './YuxiAccountFooter';
 
 interface ChatSidebarContentProps {
   showSettingsButton?: boolean;
@@ -143,6 +144,7 @@ export function ChatSidebar({
             <ChannelListSidebar />
           </div>
         )}
+        <YuxiAccountFooter />
       </div>
       <div className="resize-handle resize-handle-right" id="sidebarResizeHandle"></div>
     </aside>
