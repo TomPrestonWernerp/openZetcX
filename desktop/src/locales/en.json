@@ -850,6 +850,7 @@
       "noResults": "No matching settings"
     },
     "tabs": {
+      "yuxi": "Yuxi Hub",
       "interface": "Interface",
       "general": "General",
       "browser": "Browser",

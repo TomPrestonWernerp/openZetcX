@@ -40,6 +40,7 @@ import { createStopTaskTool } from "../lib/tools/stop-task-tool.ts";
 import { createCurrentStatusTool } from "../lib/tools/current-status-tool.ts";
 import { createTerminalTool } from "../lib/tools/terminal-tool.ts";
 import { createWorkflowTool } from "../lib/tools/workflow-tool.ts";
+import { createYuxiKnowledgeTools } from "../lib/tools/yuxi-knowledge.ts";
 import { runCompatChecks } from "../lib/compat/index.ts";
 import { getPlatformPromptNote } from "./platform-prompt.ts";
 import {
@@ -145,6 +146,7 @@ export class Agent {
   declare _webFetchTool: any;
   declare _webSearchTool: any;
   declare _workflowTool: any;
+  declare _yuxiKnowledgeTools: any[];
   declare agentDir: any;
   declare agentName: any;
   declare agentsDir: any;
@@ -490,6 +492,9 @@ export class Agent {
     this._pinnedMemoryTools = createPinnedMemoryTools(this.agentDir);
     this._experienceTools = createExperienceTools(this.agentDir, {
       isEnabled: () => this._experienceEnabled === true,
+    });
+    this._yuxiKnowledgeTools = createYuxiKnowledgeTools({
+      getClient: () => this._cb?.getEngine?.()?.yuxiClient || null,
     });
 
     // 8. Desk 系统（与 memory 完全独立）
@@ -893,6 +898,7 @@ export class Agent {
       ...experienceTools,
       this._webSearchTool,
       this._webFetchTool,
+      ...this._yuxiKnowledgeTools,
       this._todoTool,
       this._automationTool,
       this._stageFilesTool,

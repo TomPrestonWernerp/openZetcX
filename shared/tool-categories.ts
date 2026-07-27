@@ -27,6 +27,8 @@ export const CORE_TOOL_NAMES = [
 
 export const STANDARD_TOOL_NAMES = [
   "web_fetch",
+  "yuxi_list_knowledge_bases",
+  "yuxi_query_knowledge_base",
   "todo_write",
   "notify",
   "stage_files",

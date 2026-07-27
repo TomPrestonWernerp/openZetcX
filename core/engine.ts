@@ -40,6 +40,7 @@ import { loadLocale } from "../lib/i18n.ts";
 import { createApprovalGateway, createModelApprovalReviewer } from "../lib/approval-gateway.ts";
 import { callText } from "./llm-client.ts";
 import { SESSION_APPROVAL_POLICIES } from "./session-permission-mode.ts";
+import { YuxiClient } from "../lib/yuxi/client.ts";
 
 /** 已知的外部 AI 工具技能目录（相对 $HOME） */
 export const WELL_KNOWN_SKILL_PATHS = [
@@ -208,6 +209,7 @@ export class HanaEngine {
   declare _imageStripNotified: any;
   declare _listeners: any;
   declare _media: any;
+  declare yuxiClient: YuxiClient;
   declare _models: any;
   declare _notifications: any;
   declare _outboundProxyRuntime: any;
@@ -295,6 +297,7 @@ export class HanaEngine {
     this._sessionManifestMigration = this._runSessionManifestStartupMigration();
     this._currentTurnNativeMedia = createCurrentTurnNativeMediaStore();
     this._pluginInstallRecords = new PluginInstallRecords({ openZetcXHome });
+    this.yuxiClient = new YuxiClient({ openZetcXHome });
     this._automationSuggestionStore = new AutomationSuggestionStore();
     this._approvalGateway = createApprovalGateway({
       smallToolModelReviewer: createModelApprovalReviewer({

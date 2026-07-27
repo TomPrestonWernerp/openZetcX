@@ -42,6 +42,31 @@ function desktopOwnerPrincipal(extraScopes = []) {
 }
 
 describe("HTTP route security policy", () => {
+  it("requires settings scopes for Yuxi account, catalog, install, and query routes", async () => {
+    const { classifyHttpRoute } = await import("../server/http/route-security.ts");
+
+    for (const path of [
+      "/api/yuxi/session",
+      "/api/yuxi/agents",
+      "/api/yuxi/skills",
+      "/api/yuxi/knowledge-bases",
+    ]) {
+      expect(classifyHttpRoute({ method: "GET", path }), path)
+        .toMatchObject({ kind: "scope", scope: "settings.read" });
+    }
+    for (const path of [
+      "/api/yuxi/login",
+      "/api/yuxi/logout",
+      "/api/yuxi/settings",
+      "/api/yuxi/agents/researcher/install",
+      "/api/yuxi/skills/research-helper/install",
+      "/api/yuxi/knowledge-bases/kb-1/query",
+    ]) {
+      expect(classifyHttpRoute({ method: "POST", path }), path)
+        .toMatchObject({ kind: "scope", scope: "settings.write" });
+    }
+  });
+
   it("keeps local owner access unrestricted", async () => {
     const { authorizeHttpRoute } = await import("../server/http/route-security.ts");
 

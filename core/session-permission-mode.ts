@@ -29,6 +29,8 @@ const INFORMATION_TOOLS = new Set([
   "current_status",
   "search_memory",
   "recall_experience",
+  "yuxi_list_knowledge_bases",
+  "yuxi_query_knowledge_base",
 ]);
 
 const SIDE_EFFECT_TOOLS = new Set([

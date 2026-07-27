@@ -793,6 +793,7 @@
       "noResults": "일치하는 설정이 없습니다"
     },
     "tabs": {
+      "yuxi": "Yuxi Hub",
       "interface": "인터페이스",
       "general": "일반",
       "browser": "브라우저",

@@ -90,6 +90,7 @@ import { createHtmlPreviewRoute } from "./routes/html-preview.ts";
 import { createAccessRoute } from "./routes/access.ts";
 import { createMediaRoute } from "./routes/media.ts";
 import { createSpeechRecognitionRoute } from "./routes/speech-recognition.ts";
+import { createYuxiRoute } from "./routes/yuxi.ts";
 import { registerTaskRegistryBusHandlers } from "./task-bus-handlers.ts";
 import { registerDeferredResultBusHandlers } from "./deferred-result-bus-handlers.ts";
 import { configureProcessPiSdkEnv, ensureHanaPiSdkDirs, resolveOpenZetcXHome } from "../shared/hana-runtime-paths.ts";
@@ -810,6 +811,7 @@ app.route("/api", createResourceIoRoute(engine));
 app.route("/api", createResourcesRoute(engine));
 app.route("/api", createUsageRoute(engine));
 app.route("/api", createSpeechRecognitionRoute(engine));
+app.route("/api", createYuxiRoute(engine));
 app.route("/api", createServerIdentityRoute({
   openZetcXHome: engine.openZetcXHome,
   appVersion,

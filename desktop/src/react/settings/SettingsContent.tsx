@@ -31,6 +31,7 @@ import { ExperimentsTab } from './tabs/ExperimentsTab';
 import { SecurityTab } from './tabs/SecurityTab';
 import { SharingTab } from './tabs/SharingTab';
 import { AccessTab } from './tabs/AccessTab';
+import { YuxiTab } from './tabs/YuxiTab';
 import { getNativeSettingsTabComponent } from './native-settings-tabs';
 import { CropOverlay } from './overlays/CropOverlay';
 import { AgentCreateOverlay } from './overlays/AgentCreateOverlay';
@@ -56,6 +57,7 @@ const TAB_COMPONENTS: Record<string, React.ComponentType> = {
   media: MediaTab,
   sharing: SharingTab,
   access: AccessTab,
+  yuxi: YuxiTab,
   plugins: PluginsTab,
   experiments: ExperimentsTab,
   'plugin-marketplace': PluginMarketplaceTab,
@@ -94,6 +96,7 @@ const TAB_TITLE_KEYS: Record<string, string> = {
   media: 'settings.tabs.media',
   sharing: 'settings.tabs.sharing',
   access: 'settings.tabs.access',
+  yuxi: 'settings.tabs.yuxi',
   plugins: 'settings.tabs.plugins',
   experiments: 'settings.tabs.experiments',
   'plugin-marketplace': 'settings.tabs.pluginMarketplace',
@@ -206,7 +209,7 @@ export function SettingsContent({
   const activeTabTitle = tabTitleKey ? t(tabTitleKey) : titleToLabel(dynamicTab?.title);
   const activeTabDescriptionKey = TAB_DESCRIPTION_KEYS[effectiveActiveTab];
   const activeTabDescription = activeTabDescriptionKey ? t(activeTabDescriptionKey) : '';
-  const isWideTab = effectiveActiveTab === 'plugin-marketplace' || effectiveActiveTab === 'providers';
+  const isWideTab = effectiveActiveTab === 'plugin-marketplace' || effectiveActiveTab === 'providers' || effectiveActiveTab === 'yuxi';
 
   const reportActiveTabChange = useCallback((tab: string) => {
     const nextTab = normalizeSettingsTab(tab);

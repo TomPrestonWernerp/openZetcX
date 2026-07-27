@@ -136,6 +136,8 @@ export function classifyHttpRoute({ method = "GET", path = "" } = {}) {
   if (isImageGenerationProviderManagementRoute(verb, routePath)) return scoped("providers.manage");
   if (isPluginSettingsReadRoute(verb, routePath)) return scoped("settings.read");
   if (isPluginSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
+  if (isYuxiSettingsReadRoute(verb, routePath)) return scoped("settings.read");
+  if (isYuxiSettingsWriteRoute(verb, routePath)) return scoped("settings.write");
   if (isProviderManagementRoute(verb, routePath)) return scoped("providers.manage");
   if (isBridgeManagementRoute(verb, routePath)) return scoped("bridge.manage");
   if (isPluginAssetReadRoute(verb, routePath)) return scoped("chat");
@@ -560,6 +562,24 @@ function isPluginSettingsWriteRoute(verb, routePath) {
   ))
     || (verb === "POST" && /^\/api\/plugins\/marketplace\/[^/]+\/install$/.test(routePath))
     || (verb === "DELETE" && /^\/api\/plugins\/[^/]+$/.test(routePath));
+}
+
+function isYuxiSettingsReadRoute(verb, routePath) {
+  if (verb !== "GET") return false;
+  return routePath === "/api/yuxi/session"
+    || routePath === "/api/yuxi/agents"
+    || routePath === "/api/yuxi/skills"
+    || routePath === "/api/yuxi/knowledge-bases";
+}
+
+function isYuxiSettingsWriteRoute(verb, routePath) {
+  if (verb !== "POST") return false;
+  return routePath === "/api/yuxi/login"
+    || routePath === "/api/yuxi/logout"
+    || routePath === "/api/yuxi/settings"
+    || /^\/api\/yuxi\/agents\/[^/]+\/install$/.test(routePath)
+    || /^\/api\/yuxi\/skills\/[^/]+\/install$/.test(routePath)
+    || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/query$/.test(routePath);
 }
 
 function isPluginUiReadRoute(verb, routePath) {

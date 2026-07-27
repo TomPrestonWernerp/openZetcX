@@ -793,6 +793,7 @@
       "noResults": "一致する設定がありません"
     },
     "tabs": {
+      "yuxi": "Yuxi Hub",
       "interface": "インターフェース",
       "general": "一般",
       "browser": "ブラウザ",

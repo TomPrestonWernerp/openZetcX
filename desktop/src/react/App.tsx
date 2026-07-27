@@ -32,6 +32,7 @@ import { openSettingsModal } from './stores/settings-modal-actions';
 import { AppTitlebar } from './components/app/AppTitlebar';
 import { ChatSidebar } from './components/app/ChatSidebar';
 import { AppPages } from './components/app/AppPages';
+import { YuxiAuthGate } from './components/YuxiAuthGate';
 
 declare function t(key: string, vars?: Record<string, string | number>): string;
 
@@ -86,6 +87,7 @@ function App() {
 
   return (
     <ErrorBoundary>
+      <YuxiAuthGate>
       {/* Headless behavior components */}
       <SidebarLayout />
       <ChannelsPanel />
@@ -157,6 +159,7 @@ function App() {
 
       {/* Toast notifications */}
       <ToastContainer />
+      </YuxiAuthGate>
     </ErrorBoundary>
   );
 }
