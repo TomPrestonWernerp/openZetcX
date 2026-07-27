@@ -197,8 +197,15 @@ function serveMobilePwaStaticFiles(): Plugin {
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use((req, res, next) => {
-        const pathname = req.url?.split('?')[0] || '';
-        const asset = filesByUrl.get(pathname);
+        const requestUrl = new URL(req.url || '/', 'http://localhost');
+        // Vite appends ?import when a source module imports an asset. Let Vite
+        // transform those requests instead of returning the raw image bytes as
+        // JavaScript, while keeping the direct PWA URLs available.
+        if (requestUrl.searchParams.has('import')) {
+          next();
+          return;
+        }
+        const asset = filesByUrl.get(requestUrl.pathname);
         if (!asset) {
           next();
           return;

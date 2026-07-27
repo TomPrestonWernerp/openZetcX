@@ -11,7 +11,7 @@ import { hanaFetch } from '../hooks/use-hana-fetch';
 import { hasServerConnection } from '../services/server-connection';
 import { activateWorkspaceDesk } from './desk-actions';
 import type { AgentPhoneActivity, AgentPhoneSettings, AgentPhoneToolMode, Channel, ChannelAgentActivities, ChannelMessage } from '../types';
-import { WORKSPACE_OUTPUT_ROOT_DIRNAME } from '../../../../shared/workspace-output.ts';
+import { WORKSPACE_OUTPUT_ROOT_DIRNAME } from '../../../../shared/workspace-output-constants.ts';
 
 // 鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲鈺愨晲
 // 鍔犺浇棰戦亾鍒楄〃

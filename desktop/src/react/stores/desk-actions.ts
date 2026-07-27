@@ -22,7 +22,7 @@ import {
 } from '../services/server-connection';
 import { isWebRuntime } from '../utils/platform-runtime';
 import { mergeWorkspaceHistory, normalizeWorkspacePath, removeWorkspaceHistoryEntries } from '../../../../shared/workspace-history.ts';
-import { WORKSPACE_OUTPUT_ROOT_DIRNAME } from '../../../../shared/workspace-output.ts';
+import { WORKSPACE_OUTPUT_ROOT_DIRNAME } from '../../../../shared/workspace-output-constants.ts';
 
 /* eslint-disable @typescript-eslint/no-explicit-any -- store setState 回调及 IPC callback data */
 
