@@ -893,12 +893,20 @@ export class Agent {
     const computerUseTools = this._isComputerUseCandidateForThisAgent()
       ? [this._getComputerUseTool()]
       : [];
+    // Dev hot reload can update this method on an Agent instance that was
+    // created before Yuxi tools were added to the constructor. Lazily repair
+    // that instance instead of making every settings/tools request fail.
+    const yuxiKnowledgeTools = Array.isArray(this._yuxiKnowledgeTools)
+      ? this._yuxiKnowledgeTools
+      : (this._yuxiKnowledgeTools = createYuxiKnowledgeTools({
+          getClient: () => this._cb?.getEngine?.()?.yuxiClient || null,
+        }));
     return [
       ...memTools,
       ...experienceTools,
       this._webSearchTool,
       this._webFetchTool,
-      ...this._yuxiKnowledgeTools,
+      ...yuxiKnowledgeTools,
       this._todoTool,
       this._automationTool,
       this._stageFilesTool,

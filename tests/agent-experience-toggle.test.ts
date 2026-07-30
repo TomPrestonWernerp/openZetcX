@@ -17,7 +17,7 @@ function makeAgent({ experienceEnabled }) {
   fs.mkdirSync(path.join(productDir, "yuan"), { recursive: true });
   fs.mkdirSync(agentDir, { recursive: true });
   fs.mkdirSync(userDir, { recursive: true });
-  fs.writeFileSync(path.join(productDir, "yuan", "hanako.md"), "yuan", "utf-8");
+  fs.writeFileSync(path.join(productDir, "yuan", "openZetcX.md"), "yuan", "utf-8");
   fs.writeFileSync(path.join(agentDir, "identity.md"), "identity", "utf-8");
   fs.writeFileSync(path.join(agentDir, "ishiki.md"), "ishiki", "utf-8");
 
@@ -94,6 +94,17 @@ describe("agent experience toggle", () => {
     roots.push(root);
 
     expect(agent.getToolsSnapshot().map((tool) => tool.name)).not.toContain("wait");
+  });
+
+  it("repairs Yuxi tools on an agent instance created before a hot reload", () => {
+    const { agent, root } = makeAgent({ experienceEnabled: false });
+    roots.push(root);
+
+    delete agent._yuxiKnowledgeTools;
+
+    const toolNames = agent.getToolsSnapshot().map((tool) => tool.name);
+    expect(toolNames).toContain("yuxi_query_knowledge_base");
+    expect(Array.isArray(agent._yuxiKnowledgeTools)).toBe(true);
   });
 
   it("guides fresh sessions to record session files and deliver them through stage_files", () => {

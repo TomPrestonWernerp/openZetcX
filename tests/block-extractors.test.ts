@@ -570,8 +570,8 @@ describe('computer session confirmation extraction', () => {
       kind: 'computer_app_approval',
       surface: 'input',
       status: 'confirmed',
-      title: '允许 Hana 使用电脑',
-      body: 'Hana 想控制这个应用来继续当前任务。',
+      title: '允许 openZetcX 使用电脑',
+      body: 'openZetcX 想控制这个应用来继续当前任务。',
       subject: { label: 'Mock Notes', detail: 'mock · app.notes' },
       severity: 'elevated',
       actions: { confirmLabel: '同意', rejectLabel: '拒绝' },
@@ -984,6 +984,42 @@ describe('extractBlocks: plugin card extraction', () => {
   it('unknown tool with null details: returns empty array', () => {
     const blocks = (extractBlocks as any)('nonexistent_tool', null);
     expect(blocks).toEqual([]);
+  });
+});
+
+describe('extractBlocks: Yuxi knowledge citations', () => {
+  it('creates a durable knowledge_sources block with traceable source fields', () => {
+    const blocks = (extractBlocks as any)('yuxi_query_knowledge_base', {
+      knowledgeCitations: [{
+        citationId: 'YUXI-abc123-1',
+        kbId: 'kb-1',
+        kbName: '公司制度库',
+        fileId: 'file-1',
+        fileName: '差旅管理办法.pdf',
+        chunkId: 'chunk-7',
+        page: 4,
+        startLine: 21,
+        endLine: 23,
+        evidence: '差旅报销应在十五个工作日内提交。',
+      }],
+    });
+
+    expect(blocks).toEqual([{
+      type: 'knowledge_sources',
+      provider: 'yuxi',
+      sources: [{
+        citationId: 'YUXI-abc123-1',
+        kbId: 'kb-1',
+        kbName: '公司制度库',
+        fileId: 'file-1',
+        fileName: '差旅管理办法.pdf',
+        chunkId: 'chunk-7',
+        page: 4,
+        startLine: 21,
+        endLine: 23,
+        evidence: '差旅报销应在十五个工作日内提交。',
+      }],
+    }]);
   });
 });
 

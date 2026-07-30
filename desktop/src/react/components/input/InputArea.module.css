@@ -123,6 +123,48 @@
     border-color: rgba(var(--accent-rgb), 0.25);
 }
 
+.knowledge-mode-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.3rem;
+    height: 24px;
+    padding: 0.2rem 0.52rem;
+    font: inherit;
+    font-size: var(--fs-hint);
+    color: var(--text-muted);
+    background: var(--bg-card);
+    border: 1px solid rgba(var(--accent-rgb), 0.12);
+    border-radius: var(--radius-sm);
+    cursor: default;
+    transition: color var(--duration-slow) var(--ease-out),
+        background var(--duration-slow) var(--ease-out),
+        border-color var(--duration-slow) var(--ease-out);
+    -webkit-app-region: no-drag;
+    flex: 0 1 auto;
+    min-width: 24px;
+    overflow: hidden;
+}
+
+.knowledge-mode-btn:hover:not(:disabled) {
+    color: var(--accent);
+    border-color: rgba(var(--accent-rgb), 0.28);
+}
+
+.knowledge-mode-btn.active {
+    color: var(--accent);
+    background: rgba(var(--accent-rgb), 0.09);
+    border-color: rgba(var(--accent-rgb), 0.38);
+    box-shadow: inset 0 0 0 1px rgba(var(--accent-rgb), 0.05);
+}
+
+.knowledge-mode-btn:disabled {
+    opacity: 0.55;
+}
+
+.knowledge-mode-label {
+    white-space: nowrap;
+}
+
 /* Plan Mode 按钮 */
 .plan-mode-btn {
     display: inline-flex;
@@ -188,6 +230,7 @@
 .input-surface-mobile .audio-record-btn,
 .input-surface-mobile .thinking-pill,
 .input-surface-mobile .plan-mode-btn,
+.input-surface-mobile .knowledge-mode-btn,
 .input-surface-mobile .send-btn {
     width: 30px;
     height: 30px;
@@ -198,6 +241,7 @@
 }
 
 .input-surface-mobile .plan-mode-label,
+.input-surface-mobile .knowledge-mode-label,
 .input-surface-mobile .send-label span {
     display: none;
 }

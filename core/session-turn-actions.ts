@@ -14,6 +14,7 @@ export async function replayLatestUserTurn(engine, opts: Record<string, any> = {
     replacementText,
     displayMessage,
     uiContext,
+    context,
   } = opts;
 
   if (!engine || typeof engine.ensureSessionLoaded !== "function") {
@@ -67,6 +68,7 @@ export async function replayLatestUserTurn(engine, opts: Record<string, any> = {
       text: displayMessage?.text ?? (replacementText == null ? visibleUserText(original.text) : String(replacementText)),
     },
     uiContext,
+    context,
   });
 }
 

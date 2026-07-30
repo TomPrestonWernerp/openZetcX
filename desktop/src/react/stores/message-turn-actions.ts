@@ -1,5 +1,5 @@
 import { useStore } from './index';
-import { sessionScopedListIncludes } from './session-slice';
+import { isYuxiKnowledgeModeEnabled, sessionScopedListIncludes } from './session-slice';
 import type { ChatMessage } from './chat-types';
 import { hanaFetch } from '../hooks/use-hana-fetch';
 import { collectUiContext } from '../utils/ui-context';
@@ -23,6 +23,7 @@ export async function replayLatestUserMessage(
         sourceEntryId: message.sourceEntryId || null,
         clientMessageId: message.id,
         text: replacementText,
+        knowledgeMode: isYuxiKnowledgeModeEnabled(state, sessionPath),
         uiContext: collectUiContext(state),
         displayMessage: {
           text: replacementText ?? message.text ?? '',

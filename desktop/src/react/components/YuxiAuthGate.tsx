@@ -111,7 +111,7 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
   if (checking && !blocked) {
     return (
       <div className={css.root}>
-        <div className={css.loading}>{zh ? '正在验证 Yuxi 登录…' : 'Verifying Yuxi sign-in…'}</div>
+        <div className={css.loading}>{zh ? '正在进行线上验证…' : 'Verifying online identity…'}</div>
       </div>
     );
   }
@@ -119,14 +119,14 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
   return (
     <div className={css.root}>
       <form className={css.card} onSubmit={login}>
-        <div className={css.brand}>openZetc × Yuxi</div>
+        <div className={css.brand}>openZetc</div>
         <h1>{zh ? '登录以继续' : 'Sign in to continue'}</h1>
         <p>{zh
-          ? '此 openZetc 已启用 Yuxi 启动验证。请使用同一账号访问有权限的 Agent、Skill 与知识库。'
-          : 'This openZetc installation requires Yuxi verification. Use the same account to access permitted agents, skills, and knowledge bases.'}</p>
+          ? '此 openZetc 已启用线上验证。请使用同一账号访问有权限的 Agent、Skill 与知识库。'
+          : 'This openZetc installation requires online verification. Use the same account to access permitted agents, skills, and knowledge bases.'}</p>
         {error && <div className={css.error} role="alert">{error}</div>}
         <label>
-          <span>{zh ? 'Yuxi API 地址' : 'Yuxi API URL'}</span>
+          <span>{zh ? '线上服务地址' : 'Online service URL'}</span>
           <input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} required />
         </label>
         <label>
@@ -138,9 +138,9 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
           <input type="password" value={password} onChange={event => setPassword(event.target.value)} autoComplete="current-password" required />
         </label>
         <button type="submit" disabled={busy}>
-          {busy ? (zh ? '正在验证…' : 'Signing in…') : (zh ? '使用 Yuxi 登录' : 'Sign in with Yuxi')}
+          {busy ? (zh ? '正在验证…' : 'Signing in…') : (zh ? '登录' : 'Sign in')}
         </button>
-        <small>{zh ? '密码只发送到上述 Yuxi 服务，本地不保存。' : 'The password is sent only to the Yuxi server above and is not stored locally.'}</small>
+        <small>{zh ? '密码只用于身份验证，本地不保存。' : 'The password is used only for identity verification and is not stored locally.'}</small>
       </form>
     </div>
   );

@@ -98,7 +98,7 @@ describe('PluginMarketplaceTab Yuxi Skill marketplace', () => {
 
     render(<PluginMarketplaceTab />);
 
-    expect(await screen.findByText('请先登录 Yuxi')).toBeInTheDocument();
+    expect(await screen.findByText('请先完成线上登录')).toBeInTheDocument();
     expect(mockHanaFetch).toHaveBeenCalledWith('/api/yuxi/session?verify=1', { timeout: 8_000 });
     expect(mockHanaFetch).not.toHaveBeenCalledWith('/api/plugins/marketplace');
   });

@@ -65,7 +65,7 @@ describe('YuxiAccountFooter', () => {
     expect(await screen.findByText('openzetc_admin')).toBeInTheDocument();
     expect(screen.getByText('默认部门 · superadmin')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByTitle('打开 Yuxi 账号与资源中心'));
+    fireEvent.click(screen.getByTitle('打开 openZetc 账号与资源中心'));
     expect(mockOpenSettingsModal).toHaveBeenCalledWith('yuxi');
   });
 

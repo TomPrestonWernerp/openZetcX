@@ -44,6 +44,7 @@ import {
 } from "../../lib/turn-input-presentation.ts";
 import { buildAutomationSuggestionBlock } from "../suggestion-blocks.ts";
 import { isAllowedChatImageMime, isChatImageBase64WithinLimit } from "../../shared/image-mime.ts";
+import { buildYuxiKnowledgeTurnContext } from "../../lib/yuxi/knowledge-turn-context.ts";
 import { isAllowedChatVideoMime, isChatVideoBase64WithinLimit } from "../../shared/video-mime.ts";
 import { isAllowedChatAudioMime, isChatAudioBase64WithinLimit } from "../../shared/audio-mime.ts";
 import { getAssistantTextPhase } from "../../shared/text-signature.ts";
@@ -1725,6 +1726,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
                     videos: msg.videos,
                     audios: msg.audios,
                     uiContext: msg.uiContext ?? null,
+                    context: buildYuxiKnowledgeTurnContext(msg.knowledgeMode === true),
                     displayMessage: msg.displayMessage,
                     sessionFileRefs: msg.sessionFileRefs,
                   });
@@ -1745,6 +1747,7 @@ export function createChatRoute(engine: any, hub: any, { upgradeWebSocket }: any
                   videos: msg.videos,
                   audios: msg.audios,
                   uiContext: msg.uiContext ?? null,
+                  context: buildYuxiKnowledgeTurnContext(msg.knowledgeMode === true),
                   displayMessage: msg.displayMessage,
                   sessionFileRefs: msg.sessionFileRefs,
                 });

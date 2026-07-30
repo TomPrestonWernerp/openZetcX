@@ -18,6 +18,9 @@ interface Props {
   permissionMode: PermissionMode;
   onPermissionModeChange: (v: PermissionMode) => void;
   planModeLocked: boolean;
+  knowledgeMode?: boolean;
+  knowledgeModeBusy?: boolean;
+  onKnowledgeModeToggle?: () => void;
   // 右侧控制
   showThinking: boolean;
   thinkingLevel: ThinkingLevel;
@@ -42,6 +45,7 @@ export const InputControlBar = memo(function InputControlBar(props: Props) {
   const {
     t, onAttach, slashBtnRef, onSlashToggle,
     permissionMode, onPermissionModeChange, planModeLocked,
+    knowledgeMode = false, knowledgeModeBusy = false, onKnowledgeModeToggle = () => {},
     showThinking, thinkingLevel, onThinkingChange, availableThinkingLevels,
     models, sessionModel, isStreaming, hasInput, canSend,
     showAudioInput, audioRecordingActive, audioRecordingBusy, onAudioToggle,
@@ -72,6 +76,22 @@ export const InputControlBar = memo(function InputControlBar(props: Props) {
           </svg>
         </button>
         <PlanModeButton mode={permissionMode} onChange={onPermissionModeChange} locked={planModeLocked} />
+        <button
+          type="button"
+          className={`${styles['knowledge-mode-btn']}${knowledgeMode ? ` ${styles.active}` : ''}`}
+          title={t(knowledgeMode ? 'input.knowledgeModeDisable' : 'input.knowledgeModeEnable')}
+          aria-label={t(knowledgeMode ? 'input.knowledgeModeDisable' : 'input.knowledgeModeEnable')}
+          aria-pressed={knowledgeMode}
+          aria-busy={knowledgeModeBusy}
+          disabled={planModeLocked || knowledgeModeBusy}
+          onClick={onKnowledgeModeToggle}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z" />
+            <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z" />
+          </svg>
+          <span className={styles['knowledge-mode-label']}>{t('input.knowledgeMode')}</span>
+        </button>
         <ContextRing />
       </div>
       <div className={styles['input-controls']}>

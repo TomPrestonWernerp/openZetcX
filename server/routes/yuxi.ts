@@ -21,7 +21,7 @@ function errorResponse(c: any, error: unknown) {
 export function createYuxiRoute(engine: any) {
   const route = new Hono();
   const client = engine.yuxiClient;
-  if (!client) throw new Error("Yuxi client unavailable");
+  if (!client) throw new Error("Online resource client unavailable");
 
   route.get("/yuxi/session", async (c) => {
     try {
@@ -144,6 +144,80 @@ export function createYuxiRoute(engine: any) {
         c.req.param("kbId"),
         query,
         body.meta && typeof body.meta === "object" && !Array.isArray(body.meta) ? body.meta : {},
+      );
+      return c.json(result);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  route.get("/yuxi/knowledge-bases/:kbId/files", async (c) => {
+    try {
+      const kbId = c.req.param("kbId");
+      const query = String(c.req.query("query") || "").trim().toLocaleLowerCase();
+      const requestedLimit = Number(c.req.query("limit"));
+      const limit = Number.isFinite(requestedLimit)
+        ? Math.min(Math.max(Math.floor(requestedLimit), 1), 500)
+        : 100;
+      const result = await client.listKnowledgeFiles(kbId);
+      const files = (result.entries || [])
+        .filter((entry: any) => (
+          !entry.is_dir
+          && (!query || String(entry.name || "").toLocaleLowerCase().includes(query))
+        ))
+        .slice(0, limit);
+      return c.json({ files, total: files.length });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  route.get("/yuxi/knowledge-bases/:kbId/files/:fileId/content", async (c) => {
+    try {
+      const kbId = c.req.param("kbId");
+      const fileId = c.req.param("fileId");
+      const line = Number(c.req.query("line"));
+      const offsetParam = Number(c.req.query("offset"));
+      const windowSizeParam = Number(c.req.query("windowSize"));
+      const offset = Number.isFinite(line) && line >= 1
+        ? Math.floor(line) - 1
+        : (Number.isFinite(offsetParam) ? Math.max(0, Math.floor(offsetParam)) : 0);
+      const windowSize = Number.isFinite(windowSizeParam)
+        ? Math.min(Math.max(Math.floor(windowSizeParam), 1), 2_000)
+        : 180;
+      const [document, fileResult] = await Promise.all([
+        client.openKnowledgeDocument(kbId, fileId, { offset, windowSize }),
+        client.listKnowledgeFiles(kbId),
+      ]);
+      const file = (fileResult.entries || []).find((entry: any) => String(entry.file_id || "") === fileId);
+      return c.json({
+        ...document,
+        file_name: file?.name || fileId,
+      });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  route.post("/yuxi/knowledge-bases/:kbId/files/:fileId/find", async (c) => {
+    try {
+      const body = await safeJson(c);
+      const patterns = Array.isArray(body.patterns)
+        ? body.patterns.map((pattern: unknown) => String(pattern || "").trim()).filter(Boolean)
+        : [];
+      if (!patterns.length) {
+        return c.json({ error: "patterns are required", code: "YUXI_PATTERNS_REQUIRED" }, 400);
+      }
+      const result = await client.findInKnowledgeDocument(
+        c.req.param("kbId"),
+        c.req.param("fileId"),
+        patterns,
+        {
+          useRegex: body.useRegex === true,
+          caseSensitive: body.caseSensitive === true,
+          maxWindows: body.maxWindows,
+          windowSize: body.windowSize,
+        },
       );
       return c.json(result);
     } catch (error) {

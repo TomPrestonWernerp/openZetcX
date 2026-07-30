@@ -15,7 +15,7 @@ interface YuxiSession {
 }
 
 function updateMessage(state: AutoUpdateState | undefined, zh: boolean): string {
-  if (!state) return zh ? 'Yuxi 会话已刷新' : 'Yuxi session refreshed';
+  if (!state) return zh ? '账号会话已刷新' : 'Account session refreshed';
   if (state.status === 'latest') return zh ? '已是最新版本' : 'You are up to date';
   if (state.status === 'available' || state.status === 'downloading' || state.status === 'downloaded') {
     return state.version
@@ -110,10 +110,10 @@ export function YuxiAccountFooter() {
 
   const userName = session?.user?.username || session?.user?.uid;
   const primaryText = session === null
-    ? (zh ? '正在验证 Yuxi…' : 'Verifying Yuxi…')
+    ? (zh ? '正在验证账号…' : 'Verifying account…')
     : session.authenticated && userName
       ? userName
-      : (zh ? '登录 Yuxi' : 'Sign in to Yuxi');
+      : (zh ? '登录 openZetc' : 'Sign in to openZetc');
   const identityMeta = [
     session?.user?.department_name,
     session?.user?.role,
@@ -132,14 +132,14 @@ export function YuxiAccountFooter() {
         type="button"
         className={styles.identity}
         onClick={() => openSettingsModal('yuxi')}
-        title={zh ? '打开 Yuxi 账号与资源中心' : 'Open Yuxi account and resources'}
+        title={zh ? '打开 openZetc 账号与资源中心' : 'Open openZetc account and resources'}
       >
         <span className={styles.avatar} aria-hidden="true">{initial}</span>
         <span className={styles.text}>
           <strong>{primaryText}</strong>
           <small className={feedback ? styles.feedback : undefined}>{secondaryText}</small>
         </span>
-        {session?.authenticated && <span className={styles.verified} title={zh ? 'Yuxi 已验证' : 'Verified by Yuxi'} />}
+        {session?.authenticated && <span className={styles.verified} title={zh ? '账号已验证' : 'Account verified'} />}
       </button>
       <button
         type="button"

@@ -346,6 +346,12 @@
     "openModelSettings": "モデル設定を開く",
     "attachFiles": "ファイルを追加",
     "commandMenu": "コマンドメニュー",
+    "knowledgeMode": "ナレッジ",
+    "knowledgeModeEnable": "ナレッジ会話を有効にする",
+    "knowledgeModeDisable": "ナレッジ会話を無効にする",
+    "knowledgeModeEnabled": "追跡可能な引用付きのナレッジ会話を有効にしました",
+    "knowledgeModeDisabled": "ナレッジ会話を無効にしました",
+    "knowledgeLoginRequired": "先にオンライン本人確認を完了してください",
     "docContext": "ドキュメント付き",
     "thinkingLevel": {
       "off": "オフ",
@@ -793,7 +799,7 @@
       "noResults": "一致する設定がありません"
     },
     "tabs": {
-      "yuxi": "Yuxi Hub",
+      "yuxi": "openZetc リソースセンター",
       "interface": "インターフェース",
       "general": "一般",
       "browser": "ブラウザ",

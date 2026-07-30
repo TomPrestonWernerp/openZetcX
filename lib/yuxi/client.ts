@@ -6,6 +6,10 @@ const SESSION_SCHEMA_VERSION = 1;
 const DEFAULT_BASE_URL = "http://127.0.0.1:5050";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const SESSION_FILE = "yuxi.json";
+const KNOWLEDGE_METADATA_CACHE_TTL_MS = 30_000;
+const KNOWLEDGE_DOCUMENT_CACHE_TTL_MS = 5 * 60_000;
+const MAX_CACHED_KNOWLEDGE_DOCUMENTS = 12;
+const MAX_CACHED_KNOWLEDGE_DOCUMENT_BYTES = 4 * 1024 * 1024;
 
 export class YuxiClientError extends Error {
   declare status: number;
@@ -51,26 +55,26 @@ export function normalizeYuxiBaseUrl(value: unknown): string {
   try {
     parsed = new URL(raw);
   } catch {
-    throw new YuxiClientError("Yuxi 地址无效", {
+    throw new YuxiClientError("线上服务地址无效", {
       status: 400,
       code: "YUXI_BASE_URL_INVALID",
     });
   }
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
-    throw new YuxiClientError("Yuxi 地址仅支持 http 或 https", {
+    throw new YuxiClientError("线上服务地址仅支持 http 或 https", {
       status: 400,
       code: "YUXI_BASE_URL_PROTOCOL",
     });
   }
   if (parsed.username || parsed.password) {
-    throw new YuxiClientError("Yuxi 地址不能包含用户名或密码", {
+    throw new YuxiClientError("线上服务地址不能包含用户名或密码", {
       status: 400,
       code: "YUXI_BASE_URL_CREDENTIALS",
     });
   }
   const loopbackHosts = new Set(["localhost", "127.0.0.1", "[::1]"]);
   if (parsed.protocol === "http:" && !loopbackHosts.has(parsed.hostname.toLowerCase())) {
-    throw new YuxiClientError("非本机 Yuxi 地址必须使用 https", {
+    throw new YuxiClientError("非本机线上服务地址必须使用 https", {
       status: 400,
       code: "YUXI_HTTPS_REQUIRED",
     });
@@ -84,6 +88,9 @@ export class YuxiClient {
   private readonly sessionPath: string;
   private readonly fetchImpl: typeof fetch;
   private readonly timeoutMs: number;
+  private knowledgeBasesCache: { scope: string; expiresAt: number; value: { databases: any[] } } | null = null;
+  private readonly knowledgeFilesCache = new Map<string, { expiresAt: number; value: any }>();
+  private readonly knowledgeDocumentCache = new Map<string, { expiresAt: number; value: string }>();
 
   constructor({
     openZetcXHome,
@@ -122,6 +129,7 @@ export class YuxiClient {
       return this.getSession();
     } catch (error) {
       if (error instanceof YuxiClientError && error.status === 401) {
+        this.clearKnowledgeCaches();
         this.writeSession({
           ...session,
           accessToken: null,
@@ -147,7 +155,7 @@ export class YuxiClient {
     const normalizedBaseUrl = normalizeYuxiBaseUrl(baseUrl);
     const loginId = String(username || "").trim();
     if (!loginId || typeof password !== "string" || !password) {
-      throw new YuxiClientError("请输入 Yuxi 账号和密码", {
+      throw new YuxiClientError("请输入账号和密码", {
         status: 400,
         code: "YUXI_CREDENTIALS_REQUIRED",
       });
@@ -162,7 +170,7 @@ export class YuxiClient {
       accessToken: null,
     });
     if (typeof token?.access_token !== "string" || !token.access_token) {
-      throw new YuxiClientError("Yuxi 登录响应缺少访问令牌", {
+      throw new YuxiClientError("登录响应缺少访问令牌", {
         status: 502,
         code: "YUXI_TOKEN_MISSING",
       });
@@ -180,11 +188,13 @@ export class YuxiClient {
       requireLogin: typeof requireLogin === "boolean" ? requireLogin : this.readSession().requireLogin,
       updatedAt: new Date().toISOString(),
     });
+    this.clearKnowledgeCaches();
     return this.getSession();
   }
 
   logout() {
     const session = this.readSession();
+    this.clearKnowledgeCaches();
     this.writeSession({
       ...session,
       accessToken: null,
@@ -230,7 +240,21 @@ export class YuxiClient {
   }
 
   async listKnowledgeBases() {
-    return this.request<{ databases: any[] }>("/api/knowledge/databases/accessible");
+    const scope = this.knowledgeCacheScope();
+    if (
+      this.knowledgeBasesCache
+      && this.knowledgeBasesCache.scope === scope
+      && this.knowledgeBasesCache.expiresAt > Date.now()
+    ) {
+      return this.knowledgeBasesCache.value;
+    }
+    const value = await this.request<{ databases: any[] }>("/api/knowledge/databases/accessible");
+    this.knowledgeBasesCache = {
+      scope,
+      expiresAt: Date.now() + KNOWLEDGE_METADATA_CACHE_TTL_MS,
+      value,
+    };
+    return value;
   }
 
   async queryKnowledgeBase(kbId: string, query: string, meta: Record<string, unknown> = {}) {
@@ -239,6 +263,198 @@ export class YuxiClient {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ query, meta }),
     });
+  }
+
+  async listKnowledgeFiles(kbId: string, {
+    page = 1,
+    pageSize = 500,
+    recursive = true,
+    filesOnly = true,
+  }: {
+    page?: number;
+    pageSize?: number;
+    recursive?: boolean;
+    filesOnly?: boolean;
+  } = {}) {
+    const query = new URLSearchParams({
+      kb_id: kbId,
+      page: String(Math.max(1, Math.floor(page))),
+      page_size: String(Math.min(500, Math.max(1, Math.floor(pageSize)))),
+      recursive: recursive ? "true" : "false",
+      files_only: filesOnly ? "true" : "false",
+    });
+    const cacheKey = `${this.knowledgeCacheScope()}:${kbId}:${query.toString()}`;
+    const cached = this.knowledgeFilesCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const value = await this.request<{
+      entries: Array<{
+        kb_id?: string;
+        file_id?: string;
+        name?: string;
+        is_dir?: boolean;
+        size?: number;
+        modified_at?: string;
+        status?: string;
+        has_parsed_markdown?: boolean;
+      }>;
+      page: number;
+      page_size: number;
+      total: number;
+      has_more: boolean;
+    }>(`/api/workspace/knowledge/tree?${query}`);
+    this.knowledgeFilesCache.set(cacheKey, {
+      expiresAt: Date.now() + KNOWLEDGE_METADATA_CACHE_TTL_MS,
+      value,
+    });
+    return value;
+  }
+
+  async getKnowledgeDocumentMarkdown(kbId: string, fileId: string) {
+    const cacheKey = `${this.knowledgeCacheScope()}:${kbId}:${fileId}`;
+    const cached = this.knowledgeDocumentCache.get(cacheKey);
+    if (cached && cached.expiresAt > Date.now()) {
+      this.knowledgeDocumentCache.delete(cacheKey);
+      this.knowledgeDocumentCache.set(cacheKey, cached);
+      return cached.value;
+    }
+    const query = new URLSearchParams({
+      kb_id: kbId,
+      file_id: fileId,
+      variant: "parsed",
+    });
+    const result = await this.request<unknown>(`/api/workspace/knowledge/download?${query}`, {
+      headers: { Accept: "text/markdown, text/plain;q=0.9, application/json;q=0.5" },
+    });
+    if (typeof result !== "string") {
+      throw new YuxiClientError("知识库文件没有可读取的解析文本", {
+        status: 422,
+        code: "YUXI_KNOWLEDGE_DOCUMENT_UNREADABLE",
+        details: result,
+      });
+    }
+    if (Buffer.byteLength(result, "utf8") <= MAX_CACHED_KNOWLEDGE_DOCUMENT_BYTES) {
+      this.knowledgeDocumentCache.set(cacheKey, {
+        expiresAt: Date.now() + KNOWLEDGE_DOCUMENT_CACHE_TTL_MS,
+        value: result,
+      });
+      while (this.knowledgeDocumentCache.size > MAX_CACHED_KNOWLEDGE_DOCUMENTS) {
+        const oldestKey = this.knowledgeDocumentCache.keys().next().value;
+        if (!oldestKey) break;
+        this.knowledgeDocumentCache.delete(oldestKey);
+      }
+    }
+    return result;
+  }
+
+  async openKnowledgeDocument(kbId: string, fileId: string, {
+    offset = 0,
+    windowSize = 180,
+  }: {
+    offset?: number;
+    windowSize?: number;
+  } = {}) {
+    const content = await this.getKnowledgeDocumentMarkdown(kbId, fileId);
+    const lines = content.split(/\r?\n/);
+    const start = Math.min(Math.max(Math.floor(offset), 0), lines.length);
+    const limit = Math.min(Math.max(Math.floor(windowSize), 1), 2_000);
+    const selected = lines.slice(start, start + limit);
+    const end = start + selected.length;
+    return {
+      kb_id: kbId,
+      file_id: fileId,
+      start_line: selected.length ? start + 1 : 0,
+      end_line: end,
+      total_lines: lines.length,
+      offset: start,
+      window_size: limit,
+      has_more_before: start > 0,
+      has_more_after: end < lines.length,
+      next_offset: end < lines.length ? end : null,
+      content: selected
+        .map((line, index) => `${String(start + index + 1).padStart(6, " ")}\t${line}`)
+        .join("\n"),
+    };
+  }
+
+  async findInKnowledgeDocument(kbId: string, fileId: string, patterns: string[], {
+    useRegex = false,
+    caseSensitive = false,
+    maxWindows = 5,
+    windowSize = 40,
+  }: {
+    useRegex?: boolean;
+    caseSensitive?: boolean;
+    maxWindows?: number;
+    windowSize?: number;
+  } = {}) {
+    const normalizedPatterns = patterns
+      .map(pattern => String(pattern || "").trim())
+      .filter(Boolean);
+    if (!normalizedPatterns.length) {
+      throw new YuxiClientError("patterns 至少需要一个有效关键词", {
+        status: 400,
+        code: "YUXI_KNOWLEDGE_PATTERNS_REQUIRED",
+      });
+    }
+    const content = await this.getKnowledgeDocumentMarkdown(kbId, fileId);
+    const lines = content.split(/\r?\n/);
+    const flags = caseSensitive ? "" : "i";
+    const matchers = useRegex
+      ? normalizedPatterns.map(pattern => new RegExp(pattern, flags))
+      : null;
+    const comparablePatterns = caseSensitive
+      ? normalizedPatterns
+      : normalizedPatterns.map(pattern => pattern.toLocaleLowerCase());
+    const matchedIndexes: number[] = [];
+    for (let index = 0; index < lines.length; index += 1) {
+      const line = lines[index];
+      const matched = matchers
+        ? matchers.some(matcher => {
+          matcher.lastIndex = 0;
+          return matcher.test(line);
+        })
+        : comparablePatterns.some(pattern => (
+          (caseSensitive ? line : line.toLocaleLowerCase()).includes(pattern)
+        ));
+      if (matched) matchedIndexes.push(index);
+    }
+
+    const halfWindow = Math.max(0, Math.floor(Math.min(Math.max(windowSize, 1), 200) / 2));
+    const windows: Array<{
+      start_line: number;
+      end_line: number;
+      matched_lines: number[];
+      content: string;
+    }> = [];
+    for (const matchedIndex of matchedIndexes) {
+      if (windows.length >= Math.min(Math.max(maxWindows, 1), 20)) break;
+      const start = Math.max(0, matchedIndex - halfWindow);
+      const end = Math.min(lines.length, matchedIndex + halfWindow + 1);
+      const previous = windows[windows.length - 1];
+      if (previous && start + 1 <= previous.end_line) {
+        if (!previous.matched_lines.includes(matchedIndex + 1)) {
+          previous.matched_lines.push(matchedIndex + 1);
+        }
+        continue;
+      }
+      windows.push({
+        start_line: start + 1,
+        end_line: end,
+        matched_lines: [matchedIndex + 1],
+        content: lines
+          .slice(start, end)
+          .map((line, index) => `${String(start + index + 1).padStart(6, " ")}\t${line}`)
+          .join("\n"),
+      });
+    }
+    return {
+      kb_id: kbId,
+      file_id: fileId,
+      semantic: false,
+      match_mode: useRegex ? "regex" : "keyword",
+      total_matches: matchedIndexes.length,
+      windows,
+    };
   }
 
   async request<T>(requestPath: string, {
@@ -254,7 +470,7 @@ export class YuxiClient {
     const resolvedBaseUrl = normalizeYuxiBaseUrl(baseUrl || session.baseUrl);
     const resolvedToken = accessToken === undefined ? session.accessToken : accessToken;
     if (accessToken === undefined && !resolvedToken) {
-      throw new YuxiClientError("请先登录 Yuxi", {
+      throw new YuxiClientError("请先完成线上登录", {
         status: 401,
         code: "YUXI_NOT_AUTHENTICATED",
       });
@@ -269,7 +485,7 @@ export class YuxiClient {
 
     const headers = new Headers(init.headers);
     if (resolvedToken) headers.set("Authorization", `Bearer ${resolvedToken}`);
-    headers.set("Accept", "application/json");
+    if (!headers.has("Accept")) headers.set("Accept", "application/json");
 
     let response: Response;
     try {
@@ -280,8 +496,8 @@ export class YuxiClient {
       });
     } catch (error) {
       const message = error instanceof Error && error.name === "AbortError"
-        ? "连接 Yuxi 超时"
-        : `无法连接 Yuxi：${error instanceof Error ? error.message : String(error)}`;
+        ? "连接线上服务超时"
+        : `无法连接线上服务：${error instanceof Error ? error.message : String(error)}`;
       throw new YuxiClientError(message, {
         status: 503,
         code: "YUXI_UNREACHABLE",
@@ -307,7 +523,7 @@ export class YuxiClient {
           ? detail.message
           : typeof payload?.message === "string"
             ? payload.message
-            : `Yuxi 请求失败（${response.status}）`;
+            : `线上服务请求失败（${response.status}）`;
       throw new YuxiClientError(message, {
         status: response.status,
         code: response.status === 401 ? "YUXI_UNAUTHORIZED" : "YUXI_REQUEST_FAILED",
@@ -340,7 +556,7 @@ export class YuxiClient {
           updatedAt: new Date(0).toISOString(),
         };
       }
-      throw new YuxiClientError("Yuxi 会话文件损坏", {
+      throw new YuxiClientError("账号会话文件损坏", {
         status: 500,
         code: "YUXI_SESSION_INVALID",
         details: error instanceof Error ? error.message : String(error),
@@ -351,5 +567,16 @@ export class YuxiClient {
   private writeSession(session: StoredSession) {
     fs.mkdirSync(path.dirname(this.sessionPath), { recursive: true });
     atomicWriteSync(this.sessionPath, `${JSON.stringify(session, null, 2)}\n`, { mode: 0o600 });
+  }
+
+  private knowledgeCacheScope(): string {
+    const session = this.readSession();
+    return `${session.baseUrl}:${session.user?.uid || "anonymous"}`;
+  }
+
+  private clearKnowledgeCaches() {
+    this.knowledgeBasesCache = null;
+    this.knowledgeFilesCache.clear();
+    this.knowledgeDocumentCache.clear();
   }
 }

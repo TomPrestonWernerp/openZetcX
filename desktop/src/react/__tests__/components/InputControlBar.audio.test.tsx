@@ -78,4 +78,21 @@ describe('InputControlBar audio button', () => {
 
     expect(screen.getByLabelText('input.stopRecording')).toBeTruthy();
   });
+
+  it('renders and toggles the native knowledge conversation button', () => {
+    const onKnowledgeModeToggle = vi.fn();
+    renderBar({ knowledgeMode: false, onKnowledgeModeToggle });
+
+    const button = screen.getByRole('button', { name: 'input.knowledgeModeEnable' });
+    expect(button.getAttribute('aria-pressed')).toBe('false');
+    fireEvent.click(button);
+    expect(onKnowledgeModeToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the enabled knowledge conversation state', () => {
+    renderBar({ knowledgeMode: true });
+
+    const button = screen.getByRole('button', { name: 'input.knowledgeModeDisable' });
+    expect(button.getAttribute('aria-pressed')).toBe('true');
+  });
 });

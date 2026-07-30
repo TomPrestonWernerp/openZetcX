@@ -101,7 +101,7 @@ export function PluginMarketplaceTab() {
       const message = loadError instanceof Error ? loadError.message : String(loadError);
       setError(message);
       setSkills([]);
-      showToast(`${zh ? 'Yuxi Skill 市场加载失败' : 'Yuxi Skill Marketplace failed to load'}: ${message}`, 'error');
+      showToast(`${zh ? 'Skill 市场加载失败' : 'Skill Marketplace failed to load'}: ${message}`, 'error');
     } finally {
       setLoading(false);
     }
@@ -158,21 +158,21 @@ export function PluginMarketplaceTab() {
         </button>
         <span className={styles['skills-list-desc']}>
           {zh
-            ? '浏览当前 Yuxi 账号有权访问的 Skill，并安装或同步到本地。'
-            : 'Browse Skills available to the current Yuxi account and install or sync them locally.'}
+            ? '浏览当前账号有权访问的 Skill，并安装或同步到本地。'
+            : 'Browse Skills available to the current account and install or sync them locally.'}
         </span>
         <div className={styles['plugin-marketplace-toolbar-actions']}>
           {skills && (
             <>
-              <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>Yuxi</span>
+              <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>openZetc</span>
               <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>{statusText}</span>
             </>
           )}
           <button
             type="button"
             className={styles['settings-icon-btn']}
-            title={zh ? '刷新 Yuxi Skill' : 'Refresh Yuxi Skills'}
-            aria-label={zh ? '刷新 Yuxi Skill' : 'Refresh Yuxi Skills'}
+            title={zh ? '刷新 Skill' : 'Refresh Skills'}
+            aria-label={zh ? '刷新 Skill' : 'Refresh Skills'}
             onClick={() => void loadMarketplace()}
             disabled={loading}
           >
@@ -191,23 +191,23 @@ export function PluginMarketplaceTab() {
       <SettingsSection variant="flush">
         {skills === null ? (
           <p className={`${styles['settings-muted-note']} ${styles['skills-empty']}`}>
-            {zh ? '正在读取 Yuxi Skill 市场…' : 'Loading Yuxi Skill Marketplace…'}
+            {zh ? '正在读取 Skill 市场…' : 'Loading Skill Marketplace…'}
           </p>
         ) : !session?.authenticated ? (
           <div className={styles['plugin-marketplace-empty-state']}>
-            <strong>{zh ? '请先登录 Yuxi' : 'Sign in to Yuxi first'}</strong>
+            <strong>{zh ? '请先完成线上登录' : 'Sign in online first'}</strong>
             <span>
               {zh
                 ? '登录后，这里会显示该账号在公司、部门及个人范围内可访问的 Skill。'
                 : 'After sign-in, Skills available at company, department, and personal scopes appear here.'}
             </span>
             <button type="button" className={styles['settings-save-btn-sm']} onClick={() => set({ activeTab: 'yuxi' })}>
-              {zh ? '前往 Yuxi 登录' : 'Go to Yuxi sign-in'}
+              {zh ? '前往登录' : 'Go to sign-in'}
             </button>
           </div>
         ) : error ? (
           <div className={styles['plugin-marketplace-empty-state']}>
-            <strong>{zh ? 'Yuxi Skill 加载失败' : 'Failed to load Yuxi Skills'}</strong>
+            <strong>{zh ? 'Skill 加载失败' : 'Failed to load Skills'}</strong>
             <span>{error}</span>
             <button type="button" className={styles['settings-save-btn-sm']} onClick={() => void loadMarketplace()}>
               {zh ? '重试' : 'Retry'}
@@ -276,7 +276,7 @@ export function PluginMarketplaceTab() {
                       </span>
                       {selectedSkill.is_builtin && (
                         <span className={styles['skills-source-badge']} style={{ marginRight: 0 }}>
-                          {zh ? 'Yuxi 内置' : 'Built into Yuxi'}
+                          {zh ? '平台内置' : 'Built into the platform'}
                         </span>
                       )}
                       {syncedSlugs.has(selectedSkill.slug) && (
@@ -293,11 +293,11 @@ export function PluginMarketplaceTab() {
                     <div className={styles['plugin-marketplace-metadata']}>
                       <div>
                         <span>{zh ? '发布者' : 'Publisher'}</span>
-                        <strong>{selectedSkill.created_by || 'Yuxi'}</strong>
+                        <strong>{selectedSkill.created_by || 'openZetc'}</strong>
                       </div>
                       <div>
                         <span>{zh ? '来源' : 'Source'}</span>
-                        <strong>{selectedSkill.source_type || 'Yuxi'}</strong>
+                        <strong>{selectedSkill.source_type || 'openZetc'}</strong>
                       </div>
                       <div>
                         <span>{zh ? '可见范围' : 'Visibility'}</span>

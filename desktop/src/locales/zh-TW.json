@@ -346,6 +346,12 @@
     "openModelSettings": "開啟模型設定",
     "attachFiles": "新增檔案",
     "commandMenu": "命令選單",
+    "knowledgeMode": "知識庫",
+    "knowledgeModeEnable": "開啟知識庫對話",
+    "knowledgeModeDisable": "關閉知識庫對話",
+    "knowledgeModeEnabled": "已開啟含可追溯引用的知識庫對話",
+    "knowledgeModeDisabled": "已關閉知識庫對話",
+    "knowledgeLoginRequired": "請先完成線上身分驗證",
     "docContext": "看著文件說",
     "thinkingLevel": {
       "off": "關閉",
@@ -793,7 +799,7 @@
       "noResults": "沒有找到相關設定"
     },
     "tabs": {
-      "yuxi": "Yuxi 資源中心",
+      "yuxi": "openZetc 資源中心",
       "interface": "介面",
       "general": "通用",
       "browser": "瀏覽器",

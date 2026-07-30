@@ -34,7 +34,7 @@ function safeSlug(value: unknown, label: string): string {
 function safeRelativePath(value: unknown): string {
   const normalized = String(value || "").replace(/\\/g, "/").replace(/^\/+/, "");
   if (!normalized || normalized.split("/").some(part => !part || part === "." || part === "..")) {
-    throw new YuxiClientError("Yuxi Skill 包含非法路径", {
+    throw new YuxiClientError("线上 Skill 包含非法路径", {
       status: 400,
       code: "YUXI_SKILL_PATH_INVALID",
     });
@@ -49,7 +49,7 @@ function flattenFiles(nodes: SkillTreeNode[], result: string[] = []): string[] {
     } else {
       result.push(safeRelativePath(node?.path));
       if (result.length > MAX_SKILL_FILES) {
-        throw new YuxiClientError(`Yuxi Skill 文件数超过 ${MAX_SKILL_FILES}`, {
+        throw new YuxiClientError(`线上 Skill 文件数超过 ${MAX_SKILL_FILES}`, {
           status: 400,
           code: "YUXI_SKILL_TOO_MANY_FILES",
         });
@@ -72,7 +72,7 @@ async function materializeSkill(client: YuxiClient, openZetcXHome: string, slug:
   const treeResponse = await client.getSkillTree(slug);
   const files = flattenFiles(treeResponse?.data || []);
   if (!files.includes("SKILL.md")) {
-    throw new YuxiClientError("Yuxi Skill 缺少 SKILL.md", {
+    throw new YuxiClientError("线上 Skill 缺少 SKILL.md", {
       status: 400,
       code: "YUXI_SKILL_MD_MISSING",
     });
@@ -99,7 +99,7 @@ async function materializeSkill(client: YuxiClient, openZetcXHome: string, slug:
       }
       let content = response?.data?.content;
       if (typeof content !== "string") {
-        throw new YuxiClientError(`Yuxi Skill 文件内容无效：${relativePath}`, {
+        throw new YuxiClientError(`线上 Skill 文件内容无效：${relativePath}`, {
           status: 502,
           code: "YUXI_SKILL_FILE_INVALID",
         });
@@ -109,7 +109,7 @@ async function materializeSkill(client: YuxiClient, openZetcXHome: string, slug:
       }
       totalBytes += Buffer.byteLength(content, "utf-8");
       if (totalBytes > MAX_SKILL_TEXT_BYTES) {
-        throw new YuxiClientError("Yuxi Skill 文本内容超过 5MB", {
+        throw new YuxiClientError("线上 Skill 文本内容超过 5MB", {
           status: 400,
           code: "YUXI_SKILL_TOO_LARGE",
         });
@@ -190,7 +190,7 @@ function agentIdentity(agent: any): string {
   const description = typeof agent?.description === "string" ? agent.description.trim() : "";
   if (systemPrompt) return systemPrompt;
   if (description) return `# ${agent.name || agent.slug}\n\n${description}\n`;
-  return `# ${agent?.name || agent?.slug || "Yuxi Agent"}\n`;
+  return `# ${agent?.name || agent?.slug || "Online Agent"}\n`;
 }
 
 function readAgentSource(sourcePath: string) {
@@ -215,7 +215,7 @@ export async function syncYuxiAgent({
   const response = await client.getAgent(slug);
   const remoteAgent = response?.agent;
   if (!remoteAgent) {
-    throw new YuxiClientError("Yuxi Agent 不存在", {
+    throw new YuxiClientError("线上 Agent 不存在", {
       status: 404,
       code: "YUXI_AGENT_NOT_FOUND",
     });

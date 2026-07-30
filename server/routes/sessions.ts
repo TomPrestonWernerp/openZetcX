@@ -65,6 +65,7 @@ import {
   resolveModelVideoInputTransport,
 } from "../../shared/model-capabilities.ts";
 import { replayLatestUserTurn } from "../../core/session-turn-actions.ts";
+import { buildYuxiKnowledgeTurnContext } from "../../lib/yuxi/knowledge-turn-context.ts";
 import { createRequestContext } from "../http/boundary.ts";
 import { createModuleLogger } from "../../lib/debug-log.ts";
 import { searchSessions } from "../../lib/search/session-search.ts";
@@ -1391,6 +1392,7 @@ export function createSessionsRoute(engine, hub = null) {
         replacementText: typeof body.text === "string" ? body.text : undefined,
         displayMessage: body.displayMessage || null,
         uiContext: body.uiContext ?? null,
+        context: buildYuxiKnowledgeTurnContext(body.knowledgeMode === true),
       });
       return c.json({ ok: true, ...result });
     } catch (err) {

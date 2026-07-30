@@ -89,7 +89,7 @@ export function YuxiTab() {
     setNotice('');
     try {
       await loadCatalogs();
-      setNotice(zh ? 'Yuxi 资源列表已刷新。' : 'Yuxi resources refreshed.');
+      setNotice(zh ? '资源列表已刷新。' : 'Resources refreshed.');
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
     } finally {
@@ -114,7 +114,7 @@ export function YuxiTab() {
       setPassword('');
       window.dispatchEvent(new CustomEvent('yuxi-session-changed'));
       await loadCatalogs();
-      setNotice(zh ? 'Yuxi 登录成功，账号资源已同步。' : 'Signed in to Yuxi and synced account resources.');
+      setNotice(zh ? '登录成功，账号资源已同步。' : 'Signed in and synced account resources.');
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : String(loginError));
     } finally {
@@ -132,7 +132,7 @@ export function YuxiTab() {
       setAgents([]);
       setSkills([]);
       setKnowledgeBases([]);
-      setNotice(zh ? '已退出 Yuxi。' : 'Signed out of Yuxi.');
+      setNotice(zh ? '已退出登录。' : 'Signed out.');
     } catch (logoutError) {
       setError(logoutError instanceof Error ? logoutError.message : String(logoutError));
     } finally {
@@ -230,18 +230,18 @@ export function YuxiTab() {
   }
 
   if (!session) {
-    return <div className={css.loading}>{zh ? '正在检查 Yuxi 登录状态…' : 'Checking Yuxi session…'}</div>;
+    return <div className={css.loading}>{zh ? '正在检查账号登录状态…' : 'Checking account session…'}</div>;
   }
 
   return (
     <div className={css.root}>
       <section className={css.accountCard}>
         <div>
-          <div className={css.eyebrow}>Yuxi v0.7.1</div>
+          <div className={css.eyebrow}>openZetc</div>
           <h2>{zh ? '统一账号与资源中心' : 'Unified account and resource hub'}</h2>
           <p>{zh
-            ? '使用 Yuxi 账号验证身份，并从同一账号的权限范围同步 Agent、Skill 与知识库。密码仅用于本次登录，不会保存。'
-            : 'Verify with your Yuxi account and sync agents, skills, and knowledge bases visible to that account. Your password is never stored.'}</p>
+            ? '使用统一账号验证身份，并在该账号权限范围内同步 Agent、Skill 与知识库。密码只用于身份验证，本地不保存。'
+            : 'Verify with your unified account and sync agents, skills, and knowledge bases visible to that account. Your password is never stored.'}</p>
         </div>
         {session.authenticated && (
           <div className={css.accountIdentity}>
@@ -272,7 +272,7 @@ export function YuxiTab() {
       {!session.authenticated ? (
         <form className={css.loginForm} onSubmit={login}>
           <label>
-            <span>{zh ? 'Yuxi API 地址' : 'Yuxi API URL'}</span>
+            <span>{zh ? '线上服务地址' : 'Online service URL'}</span>
             <input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="http://127.0.0.1:5050" />
           </label>
           <div className={css.loginGrid}>
@@ -286,11 +286,11 @@ export function YuxiTab() {
             </label>
           </div>
           <button type="submit" className={css.primaryButton} disabled={busy === 'login'}>
-            {busy === 'login' ? (zh ? '正在验证…' : 'Signing in…') : (zh ? '使用 Yuxi 登录' : 'Sign in with Yuxi')}
+            {busy === 'login' ? (zh ? '正在验证…' : 'Signing in…') : (zh ? '登录' : 'Sign in')}
           </button>
           <label className={css.policyToggle}>
             <input type="checkbox" checked={requireLogin} onChange={event => setRequireLogin(event.target.checked)} />
-            <span>{zh ? '将 Yuxi 登录作为 openZetc 启动验证' : 'Use Yuxi sign-in to unlock openZetc at startup'}</span>
+            <span>{zh ? '将线上登录作为 openZetc 启动验证' : 'Use online sign-in to unlock openZetc at startup'}</span>
           </label>
         </form>
       ) : (
@@ -376,8 +376,8 @@ export function YuxiTab() {
               <form className={css.queryPanel} onSubmit={runKnowledgeQuery}>
                 <h3>{zh ? '验证知识库调用' : 'Test knowledge-base query'}</h3>
                 <p>{zh
-                  ? '这里与 Agent 内置的 Yuxi 知识库工具使用同一个账号会话和权限。'
-                  : 'This uses the same account session and permissions as the built-in Yuxi knowledge tools.'}</p>
+                  ? '这里与 Agent 内置的知识库工具使用同一个账号会话和权限。'
+                  : 'This uses the same account session and permissions as the built-in knowledge tools.'}</p>
                 <textarea value={query} onChange={event => setQuery(event.target.value)} placeholder={zh ? '输入要检索的问题…' : 'Enter a question…'} />
                 <button type="submit" className={css.primaryButton} disabled={!selectedKb || !query.trim() || Boolean(busy)}>
                   {busy === 'query' ? (zh ? '查询中…' : 'Querying…') : (zh ? '查询选中的知识库' : 'Query selected knowledge base')}

@@ -3,6 +3,39 @@ import type { SessionConfirmationBlock } from './chat-types';
 import type { ThinkingLevel } from './model-slice';
 
 const SESSION_PERMISSION_MODES = new Set(['auto', 'operate', 'ask', 'read_only']);
+const YUXI_KNOWLEDGE_MODE_STORAGE_KEY = 'openzetcx:yuxi-knowledge-mode:v1';
+
+function readPersistedYuxiKnowledgeModeMap(): Record<string, boolean> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const parsed = JSON.parse(window.localStorage.getItem(YUXI_KNOWLEDGE_MODE_STORAGE_KEY) || '{}');
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+    return Object.entries(parsed)
+      .filter(([key, value]) => key.trim() && value === true)
+      .slice(0, 1_000)
+      .reduce<Record<string, boolean>>((result, [key]) => {
+        result[key] = true;
+        return result;
+      }, {});
+  } catch {
+    return {};
+  }
+}
+
+export function persistYuxiKnowledgeModeMap(map: Record<string, boolean>): void {
+  if (typeof window === 'undefined') return;
+  try {
+    const enabledSessions = Object.fromEntries(
+      Object.entries(map || {})
+        .filter(([key, value]) => key.trim() && value === true)
+        .slice(-1_000),
+    );
+    window.localStorage.setItem(YUXI_KNOWLEDGE_MODE_STORAGE_KEY, JSON.stringify(enabledSessions));
+  } catch {
+    // Knowledge mode remains functional for the current renderer session when
+    // storage is unavailable (for example, a hardened browser profile).
+  }
+}
 
 function normalizeSessionPermissionMode(mode: unknown): SessionPermissionMode {
   return typeof mode === 'string' && SESSION_PERMISSION_MODES.has(mode)
@@ -87,6 +120,20 @@ export function sessionScopedListIncludes(
   return !!key && (list.includes(key) || (key !== sessionPath && list.includes(sessionPath)));
 }
 
+export function isYuxiKnowledgeModeEnabled(
+  state: SessionLocatorState & {
+    pendingNewSession?: boolean;
+    pendingNewSessionKnowledgeMode?: boolean;
+    yuxiKnowledgeModeBySession?: Record<string, boolean>;
+  },
+  sessionPath: string | null | undefined,
+): boolean {
+  if (!sessionPath) {
+    return state.pendingNewSession === true && state.pendingNewSessionKnowledgeMode === true;
+  }
+  return sessionScopedValue(state, state.yuxiKnowledgeModeBySession, sessionPath) === true;
+}
+
 function putSessionScopedListValue(
   state: SessionLocatorState,
   list: readonly string[],
@@ -142,6 +189,8 @@ export interface SessionSlice {
   pendingProjectId: string | null;
   pendingNewSessionThinkingLevel: ThinkingLevel | null;
   pendingNewSessionPermissionMode: SessionPermissionMode | null;
+  pendingNewSessionKnowledgeMode: boolean;
+  yuxiKnowledgeModeBySession: Record<string, boolean>;
   sessionPermissionMode: SessionPermissionMode;
   memoryEnabled: boolean;
   /** @deprecated 兼容层 — 读取当前 session 的 todos，新代码用 todosBySession */
@@ -170,6 +219,7 @@ export interface SessionSlice {
   setPendingProjectId: (projectId: string | null) => void;
   setPendingNewSessionThinkingLevel: (level: ThinkingLevel | null) => void;
   setPendingNewSessionPermissionMode: (mode: SessionPermissionMode | null) => void;
+  setYuxiKnowledgeMode: (enabled: boolean) => void;
   setSessionPermissionMode: (mode: SessionPermissionMode) => void;
   setMemoryEnabled: (enabled: boolean) => void;
   setSessionTodos: (todos: TodoItem[]) => void;
@@ -195,6 +245,8 @@ export const createSessionSlice = (
   pendingProjectId: null,
   pendingNewSessionThinkingLevel: null,
   pendingNewSessionPermissionMode: null,
+  pendingNewSessionKnowledgeMode: false,
+  yuxiKnowledgeModeBySession: readPersistedYuxiKnowledgeModeMap(),
   sessionPermissionMode: 'ask',
   memoryEnabled: true,
   sessionTodos: [],
@@ -250,6 +302,22 @@ export const createSessionSlice = (
       ...(s.pendingNewSession ? { pendingNewSessionPermissionMode: normalized } : {}),
     }));
   },
+  setYuxiKnowledgeMode: (enabled) =>
+    set((s) => {
+      if (s.pendingNewSession || !s.currentSessionPath) {
+        return { pendingNewSessionKnowledgeMode: enabled === true };
+      }
+      const nextMap = putSessionScopedValue(
+        s,
+        s.yuxiKnowledgeModeBySession,
+        s.currentSessionPath,
+        enabled === true,
+      );
+      persistYuxiKnowledgeModeMap(nextMap);
+      return {
+        yuxiKnowledgeModeBySession: nextMap,
+      };
+    }),
   setMemoryEnabled: (enabled) => set({ memoryEnabled: enabled }),
   // 兼容：旧调用方仍可用，写入当前 session
   setSessionTodos: (todos) =>

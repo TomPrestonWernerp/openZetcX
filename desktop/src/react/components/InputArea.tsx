@@ -10,7 +10,7 @@ import { useEditor, EditorContent } from '@tiptap/react';
 import type { Editor } from '@tiptap/core';
 import { useStore } from '../stores';
 import { selectPreviewItems, selectActiveTabId } from '../stores/preview-slice';
-import { sessionScopedListIncludes, sessionScopedValue } from '../stores/session-slice';
+import { isYuxiKnowledgeModeEnabled, sessionScopedListIncludes, sessionScopedValue } from '../stores/session-slice';
 import { isSessionCompacting } from '../stores/context-slice';
 import { selectSessionFiles } from '../stores/selectors/file-refs';
 import { isImageFile, isVideoFile } from '../utils/format';
@@ -63,6 +63,7 @@ import {
 } from './input/slash-commands';
 import { attachFilesFromPaths } from '../MainContent';
 import { hanaFetch } from '../hooks/use-hana-fetch';
+import { openSettingsModal } from '../stores/settings-modal-actions';
 import styles from './input/InputArea.module.css';
 import type { ChatListItem, SessionConfirmationBlock } from '../stores/chat-types';
 import type { AudioWaveform } from '../stores/chat-types';
@@ -357,6 +358,9 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
   // Local state
   const permissionMode = useStore(s => s.sessionPermissionMode);
   const setPermissionMode = useStore(s => s.setSessionPermissionMode);
+  const knowledgeMode = useStore(s => isYuxiKnowledgeModeEnabled(s, s.currentSessionPath));
+  const setKnowledgeMode = useStore(s => s.setYuxiKnowledgeMode);
+  const [knowledgeModeBusy, setKnowledgeModeBusy] = useState(false);
   const [sending, setSending] = useState(false);
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
   const [slashSelected, setSlashSelected] = useState(0);
@@ -644,6 +648,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
       type: 'prompt',
       text,
       sessionPath: useStore.getState().currentSessionPath,
+      knowledgeMode: isYuxiKnowledgeModeEnabled(useStore.getState(), useStore.getState().currentSessionPath),
       uiContext: collectUiContext(useStore.getState()),
       displayMessage: { text: displayText ?? text },
     }));
@@ -861,6 +866,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
         type: 'prompt',
         text: '',
         sessionPath,
+        knowledgeMode: isYuxiKnowledgeModeEnabled(useStore.getState(), sessionPath),
         uiContext: collectUiContext(useStore.getState()),
         displayMessage: {
           text: '',
@@ -1634,6 +1640,7 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
         clientMessageId,
         text: finalText,
         sessionPath: sessionPathForSend,
+        knowledgeMode: isYuxiKnowledgeModeEnabled(useStore.getState(), sessionPathForSend),
         uiContext: collectUiContext(useStore.getState()),
         displayMessage,
       };
@@ -1677,6 +1684,38 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
     if (!isStreaming || !ws) return;
     ws.send(JSON.stringify({ type: 'abort', sessionPath: useStore.getState().currentSessionPath }));
   }, [isStreaming]);
+
+  const handleKnowledgeModeToggle = useCallback(async () => {
+    if (knowledgeModeBusy || inputLocked) return;
+    if (knowledgeMode) {
+      setKnowledgeMode(false);
+      addToast(t('input.knowledgeModeDisabled'), 'info', 3000);
+      return;
+    }
+    setKnowledgeModeBusy(true);
+    try {
+      const response = await hanaFetch('/api/yuxi/session?verify=1', {
+        timeout: 8_000,
+        throwOnHttpError: false,
+      });
+      const session = await response.json();
+      if (!response.ok || session?.authenticated !== true) {
+        addToast(t('input.knowledgeLoginRequired'), 'warning', 6000);
+        openSettingsModal('yuxi');
+        return;
+      }
+      setKnowledgeMode(true);
+      addToast(t('input.knowledgeModeEnabled'), 'success', 3500);
+    } catch (error) {
+      addToast(
+        error instanceof Error ? error.message : t('input.knowledgeLoginRequired'),
+        'error',
+        6000,
+      );
+    } finally {
+      setKnowledgeModeBusy(false);
+    }
+  }, [addToast, inputLocked, knowledgeMode, knowledgeModeBusy, setKnowledgeMode, t]);
 
   // ── Key handler ──
   const handleEditorKeyDown = useCallback((e: InputKeyEvent): boolean => {
@@ -1869,6 +1908,9 @@ function InputAreaInner({ surface }: Required<InputAreaProps>) {
             permissionMode={permissionMode}
             onPermissionModeChange={setPermissionMode}
             planModeLocked={inputLocked}
+            knowledgeMode={knowledgeMode}
+            knowledgeModeBusy={knowledgeModeBusy}
+            onKnowledgeModeToggle={handleKnowledgeModeToggle}
             showThinking={showThinkingControl}
             thinkingLevel={thinkingLevel}
             onThinkingChange={setThinkingLevel}

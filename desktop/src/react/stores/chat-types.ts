@@ -218,6 +218,25 @@ export type RichBlock =
   | SuggestionCardBlock
   | { type: 'settings_confirm'; confirmId?: string; settingKey: string; cardType: 'toggle' | 'list' | 'text'; currentValue: string; proposedValue: string; options?: string[]; optionLabels?: Record<string, string>; label: string; description?: string; frontend?: boolean; status: 'pending' | 'confirmed' | 'rejected' | 'timeout' }
   | { type: 'settings_update'; update: SettingsUpdatePayload }
+  | {
+    type: 'knowledge_sources';
+    provider: 'yuxi' | string;
+    sources: Array<{
+      citationId: string;
+      kbId: string;
+      kbName: string;
+      fileId: string;
+      fileName: string;
+      chunkId?: string;
+      chunkIndex?: number;
+      page?: number | string;
+      startLine?: number;
+      endLine?: number;
+      matchedLines?: number[];
+      score?: number;
+      evidence: string;
+    }>;
+  }
   | SessionConfirmationBlock
   | {
     type: 'interlude';

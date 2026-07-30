@@ -346,6 +346,12 @@
     "openModelSettings": "모델 설정 열기",
     "attachFiles": "파일 추가",
     "commandMenu": "명령 메뉴",
+    "knowledgeMode": "지식",
+    "knowledgeModeEnable": "지식 대화 켜기",
+    "knowledgeModeDisable": "지식 대화 끄기",
+    "knowledgeModeEnabled": "추적 가능한 인용과 함께 지식 대화를 켰습니다",
+    "knowledgeModeDisabled": "지식 대화를 껐습니다",
+    "knowledgeLoginRequired": "먼저 온라인 본인 확인을 완료하세요",
     "docContext": "문서 포함",
     "thinkingLevel": {
       "off": "끔",
@@ -793,7 +799,7 @@
       "noResults": "일치하는 설정이 없습니다"
     },
     "tabs": {
-      "yuxi": "Yuxi Hub",
+      "yuxi": "openZetc 리소스 센터",
       "interface": "인터페이스",
       "general": "일반",
       "browser": "브라우저",

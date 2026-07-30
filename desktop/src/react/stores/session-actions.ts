@@ -8,7 +8,12 @@
 /* eslint-disable @typescript-eslint/no-explicit-any -- store partial patch + API 响应 JSON */
 
 import { useStore } from './index';
-import { sessionScopedKey, sessionScopedListIncludes, sessionScopedValue } from './session-slice';
+import {
+  persistYuxiKnowledgeModeMap,
+  sessionScopedKey,
+  sessionScopedListIncludes,
+  sessionScopedValue,
+} from './session-slice';
 import { hanaFetch, hanaUrl } from '../hooks/use-hana-fetch';
 import { buildItemsFromHistory } from '../utils/history-builder';
 import { migrateLegacyTodos } from '../utils/todo-compat';
@@ -843,6 +848,7 @@ export async function createNewSession(options: CreateNewSessionOptions = {}): P
     pendingProjectId,
     pendingNewSessionThinkingLevel: null,
     pendingNewSessionPermissionMode: null,
+    pendingNewSessionKnowledgeMode: false,
     attachedFiles: [],
     deskContextAttached: false,
     docContextAttached: false,
@@ -932,6 +938,7 @@ export async function ensureSession(): Promise<boolean> {
       pendingProjectId: null,
       pendingNewSessionThinkingLevel: null,
       pendingNewSessionPermissionMode: null,
+      pendingNewSessionKnowledgeMode: false,
       workspaceFolders: Array.isArray(data.workspaceFolders) ? data.workspaceFolders : [],
       selectedAgentId: null,
     };
@@ -956,6 +963,12 @@ export async function ensureSession(): Promise<boolean> {
 
     if (data.path) {
       Object.assign(patch, currentSessionIdentityPatch(useStore.getState() as Record<string, any>, data.path, data.sessionId));
+      patch.yuxiKnowledgeModeBySession = putSessionScopedStateValue(
+        useStore.getState() as Record<string, any>,
+        useStore.getState().yuxiKnowledgeModeBySession || {},
+        data.path,
+        s.pendingNewSessionKnowledgeMode === true,
+      );
       patch.sessionAuthorizedFoldersByPath = {
         ...putSessionScopedStateValue(
           useStore.getState() as Record<string, any>,
@@ -969,6 +982,9 @@ export async function ensureSession(): Promise<boolean> {
     }
 
     useStore.setState(patch);
+    if (patch.yuxiKnowledgeModeBySession) {
+      persistYuxiKnowledgeModeMap(patch.yuxiKnowledgeModeBySession);
+    }
     if (data.thinkingLevel) {
       useStore.getState().setThinkingLevel(data.thinkingLevel);
     }

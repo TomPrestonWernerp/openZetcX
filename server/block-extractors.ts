@@ -403,6 +403,63 @@ function shouldExtractPluginCard(toolName, details) {
   return true;
 }
 
+function extractKnowledgeSources(details) {
+  const optionalNumber = (value) => {
+    if (value === undefined || value === null || value === "") return undefined;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : undefined;
+  };
+  const citations = Array.isArray(details?.knowledgeCitations)
+    ? details.knowledgeCitations
+    : [];
+  const sources = citations
+    .map((citation) => {
+      if (!citation || typeof citation !== "object") return null;
+      const citationId = typeof citation.citationId === "string" ? citation.citationId.trim() : "";
+      const kbId = typeof citation.kbId === "string" ? citation.kbId.trim() : "";
+      const fileId = typeof citation.fileId === "string" ? citation.fileId.trim() : "";
+      const evidence = typeof citation.evidence === "string"
+        ? citation.evidence.trim().slice(0, 8_000)
+        : "";
+      if (!citationId || !kbId || !fileId || !evidence) return null;
+      return {
+        citationId,
+        kbId,
+        kbName: typeof citation.kbName === "string" && citation.kbName.trim()
+          ? citation.kbName.trim()
+          : kbId,
+        fileId,
+        fileName: typeof citation.fileName === "string" && citation.fileName.trim()
+          ? citation.fileName.trim()
+          : fileId,
+        ...(citation.chunkId ? { chunkId: String(citation.chunkId) } : {}),
+        ...(optionalNumber(citation.chunkIndex) !== undefined
+          ? { chunkIndex: optionalNumber(citation.chunkIndex) }
+          : {}),
+        ...(citation.page !== undefined && citation.page !== null ? { page: citation.page } : {}),
+        ...(optionalNumber(citation.startLine) !== undefined
+          ? { startLine: optionalNumber(citation.startLine) }
+          : {}),
+        ...(optionalNumber(citation.endLine) !== undefined
+          ? { endLine: optionalNumber(citation.endLine) }
+          : {}),
+        ...(Array.isArray(citation.matchedLines)
+          ? {
+              matchedLines: citation.matchedLines
+                .map(optionalNumber)
+                .filter(line => line !== undefined),
+            }
+          : {}),
+        ...(optionalNumber(citation.score) !== undefined
+          ? { score: optionalNumber(citation.score) }
+          : {}),
+        evidence,
+      };
+    })
+    .filter(Boolean);
+  return sources.length ? [{ type: "knowledge_sources", provider: "yuxi", sources }] : null;
+}
+
 export function extractBlocks(toolName, details, toolResult) {
   const blocks = [];
   const extractor = BLOCK_EXTRACTORS[toolName];
@@ -410,6 +467,8 @@ export function extractBlocks(toolName, details, toolResult) {
     const result = extractor(details || {}, toolResult);
     if (result) blocks.push(...result);
   }
+  const knowledgeSources = extractKnowledgeSources(details);
+  if (knowledgeSources) blocks.push(...knowledgeSources);
   const card = shouldExtractPluginCard(toolName, details) ? extractPluginCard(details) : null;
   if (card) blocks.push(card);
   return blocks;

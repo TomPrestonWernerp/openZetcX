@@ -31,6 +31,9 @@ const INFORMATION_TOOLS = new Set([
   "recall_experience",
   "yuxi_list_knowledge_bases",
   "yuxi_query_knowledge_base",
+  "yuxi_search_knowledge_files",
+  "yuxi_open_knowledge_document",
+  "yuxi_find_in_knowledge_document",
 ]);
 
 const SIDE_EFFECT_TOOLS = new Set([
