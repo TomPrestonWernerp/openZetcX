@@ -1,36 +1,34 @@
-# openZetc 0.5.100 × Yuxi 0.7.1
+# openZetcX 0.6.0 × openZetcWeb 0.6.0
 
-本适配把 Yuxi 作为 openZetc 的统一账号和资源中心，同时保留 openZetc 的本地运行与安装模型。
+openZetcWeb 是统一账号、组织和资源授权中心，openZetcX 保持本地运行与安装模型。两端共享同一访问令牌和 RBAC 判定结果，但密码不会保存在本地。
 
-## 功能边界
+## 认证链路
 
-- 登录：在「设置 → Yuxi」中使用 Yuxi 账号登录。密码只用于调用 Yuxi `/api/auth/token`，不会写入本地；访问令牌和用户快照保存到 openZetc 数据目录的 `integrations/yuxi.json`。
-- 启动验证：登录时可启用「将 Yuxi 登录作为 openZetc 启动验证」。启用后，每次启动都会调用 `/api/auth/me` 验证会话；Token 失效或主动退出后会回到登录页。
-- Agent 商店：展示当前账号可访问的 Yuxi Agent。安装后本地 ID 固定为 `yuxi-<slug>`，系统提示词写入 `identity.md`，Yuxi 来源写入 `.yuxi-source.json`；再次操作会同步更新。
-- Skill 商店：展示当前账号可访问的 Yuxi Skill。同步使用 Yuxi 的目录树和文件读取接口，并复用 openZetc 的原子 Skill 安装器；来源写入 `.openzetc-yuxi-source.json`。
-- 知识库：设置页可直接验证查询；所有本地 Agent 同时获得只读工具 `yuxi_list_knowledge_bases` 和 `yuxi_query_knowledge_base`，调用时使用当前登录账号的 Yuxi 权限。
+- 登录调用 `POST /api/auth/token` 获取访问令牌。
+- 登录完成和每次会话校验同时调用 `GET /api/auth/me` 与 `GET /api/rbac/me`。
+- 本地会话保存令牌、用户快照、角色列表和权限范围，不保存密码。
+- 启用“启动时验证登录”后，令牌失效会阻止进入应用；未启用时令牌失效不会影响本地功能，但线上资源不可用。
+- 旧版 schema 1 会话会在首次在线校验后迁移为包含 RBAC 快照的 schema 2。
 
-## 本地地址
+## 权限与资源
 
-- Yuxi API：`http://127.0.0.1:5050`
-- Yuxi Web：`http://127.0.0.1:5173`
+- Agent：需要 `agent.view` 才显示和同步；服务端继续校验资源可见范围。
+- Skill：需要 `skill.view` 才显示和同步；Skill 市场在无权限时关闭。
+- 知识库：`knowledge.view` 控制目录和原文读取，`knowledge.query` 控制 RAG、全文和图谱检索。
+- MCP：需要 `mcp.view` 才显示；`mcp.use` 决定线上是否可调用。MCP 凭据保留在 openZetcWeb，不复制到桌面端。
+- 角色和权限调整后，重新验证会话即可刷新本地权限快照和资源缓存。
 
-本机端口被占用时，可在 Yuxi `.env` 中设置 `YUXI_API_PORT` 与 `YUXI_WEB_PORT`；本次联调分别使用 `http://127.0.0.1:15050` 和 `http://127.0.0.1:15173`。在 openZetc 登录页填写 API 地址。为避免明文密码在网络上传输，openZetc 只允许本机地址使用 HTTP；非本机 Yuxi 必须配置 HTTPS。
+所有资源操作都执行两层校验：openZetcX 先根据 RBAC 快照控制入口，openZetcWeb 再基于用户、角色、部门、资源所有者和共享范围强制鉴权。前端状态不能绕过后端权限。
 
-## Yuxi 配套修改
+## 本地联调
 
-Yuxi 的 `POST /api/knowledge/databases/{kb_id}/query` 原本只允许管理员调用。适配分支将其调整为任意已登录用户可调用，但查询执行前必须通过知识库既有 `share_config` ACL（全局、部门、指定用户、创建者或超级管理员）；越权返回 403。
+- openZetcWeb API：`http://127.0.0.1:15050`
+- openZetcWeb 页面：`http://127.0.0.1:15173`
 
-## 已知限制
+本机地址允许 HTTP；非本机服务必须使用 HTTPS。知识库语义检索仍依赖有效的模型、嵌入和重排服务配置。
 
-- Yuxi 的 Skill 文件读取接口只返回 UTF-8 文本。图片等二进制资源无法由普通可读权限导出，openZetc 会跳过这些资源并在安装结果中提示数量；`SKILL.md` 缺失时拒绝安装。
-- Agent 同步的是名称、系统提示词和已选择的 Skills。Yuxi 后端运行时、模型、MCP、子 Agent 与对话历史不会复制到 openZetc。
-- 知识库内容集中保留在 Yuxi，openZetc 只查询，不复制向量、文档或索引。
-- Yuxi 的真实语义查询仍依赖可用的模型与嵌入服务配置；仅用占位 API Key 可以验证登录、权限和资源列表，但不能替代模型服务。
+## 安全边界
 
-## 生产建议
-
-- 对外部署 Yuxi 时使用 HTTPS，并限制 5050 API 端口的网络暴露。
-- 使用正式密钥替换本地初始化占位值，按公司/部门/个人范围维护 `share_config`。
-- 将 Yuxi 数据库、MinIO、Milvus 和 Neo4j 卷纳入备份；openZetc 本地安装副本不能替代中心资源备份。
-- 后续如需自动更新，可在 Yuxi Agent/Skill 增加版本或内容摘要，并由 openZetc 定期比较来源元数据后提示更新。
+- openZetcX 不复制中心知识库的向量、图谱、文档索引或 MCP 密钥。
+- 本地安装的 Agent 和 Skill 是授权时刻的副本；中心权限撤销会立即阻止后续线上访问，但不会自动删除既有本地文件。
+- 对外部署时应使用 HTTPS，并备份 PostgreSQL、MinIO、Milvus 和 Neo4j 数据卷。

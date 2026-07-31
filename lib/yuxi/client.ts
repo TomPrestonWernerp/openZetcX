@@ -2,7 +2,7 @@ import fs from "fs";
 import path from "path";
 import { atomicWriteSync } from "../../shared/safe-fs.ts";
 
-const SESSION_SCHEMA_VERSION = 1;
+const SESSION_SCHEMA_VERSION = 2;
 const DEFAULT_BASE_URL = "http://127.0.0.1:5050";
 const DEFAULT_TIMEOUT_MS = 30_000;
 const SESSION_FILE = "yuxi.json";
@@ -40,11 +40,32 @@ export type YuxiUser = {
   department_name?: string | null;
 };
 
+export type YuxiPermissionScope = "own" | "department" | "global";
+
+export type YuxiRole = {
+  id: number;
+  code: string;
+  name: string;
+  description?: string | null;
+  department_id?: number | null;
+  is_system?: boolean;
+};
+
+export type YuxiAccess = {
+  user_id: number;
+  uid: string;
+  legacy_role: string;
+  department_id?: number | null;
+  roles: YuxiRole[];
+  permissions: Record<string, YuxiPermissionScope>;
+};
+
 type StoredSession = {
   schemaVersion: number;
   baseUrl: string;
   accessToken: string | null;
   user: YuxiUser | null;
+  access: YuxiAccess | null;
   requireLogin: boolean;
   updatedAt: string;
 };
@@ -114,6 +135,7 @@ export class YuxiClient {
       authenticated: Boolean(session.accessToken && session.user),
       baseUrl: session.baseUrl,
       user: session.user,
+      access: session.access,
       requireLogin: session.requireLogin,
       ...(includeToken ? { accessToken: session.accessToken } : {}),
       updatedAt: session.updatedAt,
@@ -124,8 +146,18 @@ export class YuxiClient {
     const session = this.readSession();
     if (!session.accessToken) return this.getSession();
     try {
-      const user = await this.request<YuxiUser>("/api/auth/me");
-      this.writeSession({ ...session, user, updatedAt: new Date().toISOString() });
+      const [user, access] = await Promise.all([
+        this.request<YuxiUser>("/api/auth/me"),
+        this.request<YuxiAccess>("/api/rbac/me"),
+      ]);
+      this.clearKnowledgeCaches();
+      this.writeSession({
+        ...session,
+        schemaVersion: SESSION_SCHEMA_VERSION,
+        user,
+        access,
+        updatedAt: new Date().toISOString(),
+      });
       return this.getSession();
     } catch (error) {
       if (error instanceof YuxiClientError && error.status === 401) {
@@ -134,6 +166,7 @@ export class YuxiClient {
           ...session,
           accessToken: null,
           user: null,
+          access: null,
           updatedAt: new Date().toISOString(),
         });
       }
@@ -176,15 +209,22 @@ export class YuxiClient {
       });
     }
 
-    const user = await this.request<YuxiUser>("/api/auth/me", {
-      baseUrl: normalizedBaseUrl,
-      accessToken: token.access_token,
-    });
+    const [user, access] = await Promise.all([
+      this.request<YuxiUser>("/api/auth/me", {
+        baseUrl: normalizedBaseUrl,
+        accessToken: token.access_token,
+      }),
+      this.request<YuxiAccess>("/api/rbac/me", {
+        baseUrl: normalizedBaseUrl,
+        accessToken: token.access_token,
+      }),
+    ]);
     this.writeSession({
       schemaVersion: SESSION_SCHEMA_VERSION,
       baseUrl: normalizedBaseUrl,
       accessToken: token.access_token,
       user,
+      access,
       requireLogin: typeof requireLogin === "boolean" ? requireLogin : this.readSession().requireLogin,
       updatedAt: new Date().toISOString(),
     });
@@ -199,6 +239,7 @@ export class YuxiClient {
       ...session,
       accessToken: null,
       user: null,
+      access: null,
       updatedAt: new Date().toISOString(),
     });
     return this.getSession();
@@ -215,24 +256,34 @@ export class YuxiClient {
   }
 
   async listAgents() {
+    this.requirePermission("agent.view");
     return this.request<{ agents: any[] }>("/api/agent");
   }
 
   async getAgent(slug: string) {
+    this.requirePermission("agent.view");
     return this.request<{ agent: any }>(`/api/agent/${encodeURIComponent(slug)}`);
   }
 
   async listSkills() {
+    this.requirePermission("skill.view");
     return this.request<{ success: boolean; data: any[] }>("/api/skills/accessible");
   }
 
+  async listMcpServers() {
+    this.requirePermission("mcp.view");
+    return this.request<{ success: boolean; data: any[] }>("/api/mcp");
+  }
+
   async getSkillTree(slug: string) {
+    this.requirePermission("skill.view");
     return this.request<{ success: boolean; data: any[] }>(
       `/api/system/skills/${encodeURIComponent(slug)}/tree`,
     );
   }
 
   async getSkillFile(slug: string, relativePath: string) {
+    this.requirePermission("skill.view");
     const query = new URLSearchParams({ path: relativePath });
     return this.request<{ success: boolean; data: { path: string; content: string } }>(
       `/api/system/skills/${encodeURIComponent(slug)}/file?${query}`,
@@ -240,6 +291,7 @@ export class YuxiClient {
   }
 
   async listKnowledgeBases() {
+    this.requirePermission("knowledge.view");
     const scope = this.knowledgeCacheScope();
     if (
       this.knowledgeBasesCache
@@ -258,6 +310,7 @@ export class YuxiClient {
   }
 
   async queryKnowledgeBase(kbId: string, query: string, meta: Record<string, unknown> = {}) {
+    this.requirePermission("knowledge.query");
     return this.request<any>(`/api/knowledge/databases/${encodeURIComponent(kbId)}/query`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -276,6 +329,7 @@ export class YuxiClient {
     recursive?: boolean;
     filesOnly?: boolean;
   } = {}) {
+    this.requirePermission("knowledge.view");
     const query = new URLSearchParams({
       kb_id: kbId,
       page: String(Math.max(1, Math.floor(page))),
@@ -310,6 +364,7 @@ export class YuxiClient {
   }
 
   async getKnowledgeDocumentMarkdown(kbId: string, fileId: string) {
+    this.requirePermission("knowledge.view");
     const cacheKey = `${this.knowledgeCacheScope()}:${kbId}:${fileId}`;
     const cached = this.knowledgeDocumentCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
@@ -387,6 +442,7 @@ export class YuxiClient {
     maxWindows?: number;
     windowSize?: number;
   } = {}) {
+    this.requirePermission("knowledge.query");
     const normalizedPatterns = patterns
       .map(pattern => String(pattern || "").trim())
       .filter(Boolean);
@@ -533,15 +589,38 @@ export class YuxiClient {
     return payload as T;
   }
 
+  permissionScope(code: string): YuxiPermissionScope | null {
+    return this.readSession().access?.permissions?.[code] || null;
+  }
+
+  hasPermission(code: string): boolean {
+    return this.permissionScope(code) !== null;
+  }
+
+  requirePermission(code: string): YuxiPermissionScope {
+    const scope = this.permissionScope(code);
+    if (!scope) {
+      throw new YuxiClientError(`当前账号缺少权限：${code}`, {
+        status: 403,
+        code: "YUXI_PERMISSION_DENIED",
+        details: { permission: code },
+      });
+    }
+    return scope;
+  }
+
   private readSession(): StoredSession {
     try {
       const raw = JSON.parse(fs.readFileSync(this.sessionPath, "utf-8"));
-      if (raw?.schemaVersion !== SESSION_SCHEMA_VERSION) throw new Error("schemaVersion must be 1");
+      if (raw?.schemaVersion !== 1 && raw?.schemaVersion !== SESSION_SCHEMA_VERSION) {
+        throw new Error("unsupported schemaVersion");
+      }
       return {
         schemaVersion: SESSION_SCHEMA_VERSION,
         baseUrl: normalizeYuxiBaseUrl(raw.baseUrl),
         accessToken: typeof raw.accessToken === "string" && raw.accessToken ? raw.accessToken : null,
         user: raw.user && typeof raw.user === "object" ? raw.user : null,
+        access: raw.access && typeof raw.access === "object" ? raw.access : null,
         requireLogin: raw.requireLogin === true,
         updatedAt: typeof raw.updatedAt === "string" ? raw.updatedAt : new Date(0).toISOString(),
       };
@@ -552,6 +631,7 @@ export class YuxiClient {
           baseUrl: DEFAULT_BASE_URL,
           accessToken: null,
           user: null,
+          access: null,
           requireLogin: false,
           updatedAt: new Date(0).toISOString(),
         };

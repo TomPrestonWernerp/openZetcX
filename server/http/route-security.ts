@@ -569,7 +569,10 @@ function isYuxiSettingsReadRoute(verb, routePath) {
   return routePath === "/api/yuxi/session"
     || routePath === "/api/yuxi/agents"
     || routePath === "/api/yuxi/skills"
-    || routePath === "/api/yuxi/knowledge-bases";
+    || routePath === "/api/yuxi/knowledge-bases"
+    || routePath === "/api/yuxi/mcp-servers"
+    || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/files$/.test(routePath)
+    || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/files\/[^/]+\/content$/.test(routePath);
 }
 
 function isYuxiSettingsWriteRoute(verb, routePath) {
@@ -579,7 +582,8 @@ function isYuxiSettingsWriteRoute(verb, routePath) {
     || routePath === "/api/yuxi/settings"
     || /^\/api\/yuxi\/agents\/[^/]+\/install$/.test(routePath)
     || /^\/api\/yuxi\/skills\/[^/]+\/install$/.test(routePath)
-    || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/query$/.test(routePath);
+    || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/query$/.test(routePath)
+    || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/files\/[^/]+\/find$/.test(routePath);
 }
 
 function isPluginUiReadRoute(verb, routePath) {

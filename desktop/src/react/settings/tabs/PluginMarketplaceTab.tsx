@@ -35,6 +35,9 @@ interface YuxiSession {
     uid?: string;
     department_name?: string | null;
   } | null;
+  access?: {
+    permissions: Record<string, 'own' | 'department' | 'global'>;
+  } | null;
 }
 
 function accessLabel(skill: YuxiSkill, zh: boolean): string {
@@ -69,6 +72,7 @@ export function PluginMarketplaceTab() {
   const [installingSlug, setInstallingSlug] = useState('');
   const [syncedSlugs, setSyncedSlugs] = useState<Set<string>>(() => new Set());
   const [error, setError] = useState('');
+  const [permissionDenied, setPermissionDenied] = useState(false);
 
   const selectedSkill = useMemo(
     () => skills?.find(skill => skill.slug === selectedSlug) || skills?.[0] || null,
@@ -82,7 +86,14 @@ export function PluginMarketplaceTab() {
       const sessionResponse = await hanaFetch('/api/yuxi/session?verify=1', { timeout: 8_000 });
       const nextSession = await sessionResponse.json() as YuxiSession;
       setSession(nextSession);
+      setPermissionDenied(false);
       if (!nextSession.authenticated) {
+        setSkills([]);
+        setSelectedSlug('');
+        return;
+      }
+      if (!nextSession.access?.permissions?.['skill.view']) {
+        setPermissionDenied(true);
         setSkills([]);
         setSelectedSlug('');
         return;
@@ -204,6 +215,11 @@ export function PluginMarketplaceTab() {
             <button type="button" className={styles['settings-save-btn-sm']} onClick={() => set({ activeTab: 'yuxi' })}>
               {zh ? '前往登录' : 'Go to sign-in'}
             </button>
+          </div>
+        ) : permissionDenied ? (
+          <div className={styles['plugin-marketplace-empty-state']}>
+            <strong>{zh ? '当前角色不能查看 Skill 市场' : 'The current role cannot view the Skill Marketplace'}</strong>
+            <span>{zh ? '请联系管理员为账号授予 skill.view 权限。' : 'Ask an administrator to grant the skill.view permission.'}</span>
           </div>
         ) : error ? (
           <div className={styles['plugin-marketplace-empty-state']}>

@@ -8,6 +8,10 @@ type GateSession = {
   baseUrl: string;
   requireLogin: boolean;
   user: { username?: string; uid?: string } | null;
+  access?: {
+    roles: Array<{ id: number; code: string; name: string }>;
+    permissions: Record<string, 'own' | 'department' | 'global'>;
+  } | null;
 };
 
 const DEFAULT_SESSION: GateSession = {
@@ -49,13 +53,13 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
       let nextSession = await response.json() as GateSession;
       setSession(nextSession);
       setBaseUrl(nextSession.baseUrl || DEFAULT_SESSION.baseUrl);
-      if (nextSession.requireLogin && nextSession.authenticated) {
+      if (nextSession.authenticated) {
         const verified = await hanaFetch('/api/yuxi/session?verify=1', {
           throwOnHttpError: false,
           timeout: 8_000,
         });
         if (!verified.ok) {
-          setBlocked(true);
+          setBlocked(Boolean(nextSession.requireLogin));
           setError(await responseMessage(verified));
           return;
         }

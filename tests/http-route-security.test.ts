@@ -50,6 +50,7 @@ describe("HTTP route security policy", () => {
       "/api/yuxi/agents",
       "/api/yuxi/skills",
       "/api/yuxi/knowledge-bases",
+      "/api/yuxi/mcp-servers",
     ]) {
       expect(classifyHttpRoute({ method: "GET", path }), path)
         .toMatchObject({ kind: "scope", scope: "settings.read" });

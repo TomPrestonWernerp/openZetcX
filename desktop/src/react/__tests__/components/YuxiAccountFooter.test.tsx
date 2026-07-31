@@ -35,6 +35,10 @@ describe('YuxiAccountFooter', () => {
         department_name: '默认部门',
         role: 'superadmin',
       },
+      access: {
+        roles: [{ id: 1, code: 'system.superadmin', name: '超级管理员' }],
+        permissions: { 'role.view': 'global' },
+      },
     }));
     mockAutoUpdateCheck.mockResolvedValue({
       status: 'latest',
@@ -63,10 +67,11 @@ describe('YuxiAccountFooter', () => {
     render(<YuxiAccountFooter />);
 
     expect(await screen.findByText('openzetc_admin')).toBeInTheDocument();
-    expect(screen.getByText('默认部门 · superadmin')).toBeInTheDocument();
+    expect(screen.getByText('默认部门 · 超级管理员')).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle('打开 openZetc 账号与资源中心'));
     expect(mockOpenSettingsModal).toHaveBeenCalledWith('yuxi');
+    expect(mockHanaFetch).toHaveBeenCalledWith('/api/yuxi/session?verify=1', { timeout: 8_000 });
   });
 
   it('checks both the Yuxi session and application updates', async () => {

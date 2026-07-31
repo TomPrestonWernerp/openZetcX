@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { hanaFetch } from '../api';
 import css from './YuxiTab.module.css';
 
@@ -12,9 +12,24 @@ type YuxiSession = {
     role?: string;
     department_name?: string | null;
   } | null;
+  access: {
+    roles: Array<{ id: number; code: string; name: string }>;
+    permissions: Record<string, 'own' | 'department' | 'global'>;
+  } | null;
 };
 
-type CatalogTab = 'agents' | 'skills' | 'knowledge';
+type CatalogTab = 'agents' | 'skills' | 'knowledge' | 'mcp';
+
+const CATALOG_PERMISSIONS: Record<CatalogTab, string> = {
+  agents: 'agent.view',
+  skills: 'skill.view',
+  knowledge: 'knowledge.view',
+  mcp: 'mcp.view',
+};
+
+function hasPermission(session: YuxiSession | null, code: string): boolean {
+  return Boolean(session?.access?.permissions?.[code]);
+}
 
 function accessLabel(item: any, zh: boolean) {
   const level = item?.share_config?.access_level;
@@ -40,6 +55,7 @@ export function YuxiTab() {
   const [agents, setAgents] = useState<any[]>([]);
   const [skills, setSkills] = useState<any[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
+  const [mcpServers, setMcpServers] = useState<any[]>([]);
   const [selectedKb, setSelectedKb] = useState('');
   const [query, setQuery] = useState('');
   const [queryResult, setQueryResult] = useState('');
@@ -47,15 +63,25 @@ export function YuxiTab() {
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
 
-  const loadCatalogs = useCallback(async () => {
+  const loadCatalogs = useCallback(async (currentSession: YuxiSession) => {
     const [agentResponse, skillResponse, kbResponse] = await Promise.all([
-      hanaFetch('/api/yuxi/agents').then(res => res.json()),
-      hanaFetch('/api/yuxi/skills').then(res => res.json()),
-      hanaFetch('/api/yuxi/knowledge-bases').then(res => res.json()),
+      hasPermission(currentSession, 'agent.view')
+        ? hanaFetch('/api/yuxi/agents').then(res => res.json())
+        : Promise.resolve({ agents: [] }),
+      hasPermission(currentSession, 'skill.view')
+        ? hanaFetch('/api/yuxi/skills').then(res => res.json())
+        : Promise.resolve({ skills: [] }),
+      hasPermission(currentSession, 'knowledge.view')
+        ? hanaFetch('/api/yuxi/knowledge-bases').then(res => res.json())
+        : Promise.resolve({ knowledgeBases: [] }),
     ]);
+    const mcpResponse = hasPermission(currentSession, 'mcp.view')
+      ? await hanaFetch('/api/yuxi/mcp-servers').then(res => res.json())
+      : { mcpServers: [] };
     setAgents(agentResponse.agents || []);
     setSkills(skillResponse.skills || []);
     setKnowledgeBases(kbResponse.knowledgeBases || []);
+    setMcpServers(mcpResponse.mcpServers || []);
     setSelectedKb(current => current || kbResponse.knowledgeBases?.[0]?.kb_id || '');
   }, []);
 
@@ -67,7 +93,7 @@ export function YuxiTab() {
       setSession(nextSession);
       setBaseUrl(nextSession.baseUrl || 'http://127.0.0.1:5050');
       setRequireLogin(nextSession.requireLogin ?? true);
-      if (nextSession.authenticated) await loadCatalogs();
+      if (nextSession.authenticated) await loadCatalogs(nextSession);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
       setSession(current => current || {
@@ -75,6 +101,7 @@ export function YuxiTab() {
         baseUrl: 'http://127.0.0.1:5050',
         requireLogin: false,
         user: null,
+        access: null,
       });
     }
   }, [loadCatalogs]);
@@ -88,7 +115,7 @@ export function YuxiTab() {
     setError('');
     setNotice('');
     try {
-      await loadCatalogs();
+      if (session) await loadCatalogs(session);
       setNotice(zh ? '资源列表已刷新。' : 'Resources refreshed.');
     } catch (refreshError) {
       setError(refreshError instanceof Error ? refreshError.message : String(refreshError));
@@ -113,7 +140,7 @@ export function YuxiTab() {
       setSession(nextSession);
       setPassword('');
       window.dispatchEvent(new CustomEvent('yuxi-session-changed'));
-      await loadCatalogs();
+      await loadCatalogs(nextSession);
       setNotice(zh ? '登录成功，账号资源已同步。' : 'Signed in and synced account resources.');
     } catch (loginError) {
       setError(loginError instanceof Error ? loginError.message : String(loginError));
@@ -132,6 +159,7 @@ export function YuxiTab() {
       setAgents([]);
       setSkills([]);
       setKnowledgeBases([]);
+      setMcpServers([]);
       setNotice(zh ? '已退出登录。' : 'Signed out.');
     } catch (logoutError) {
       setError(logoutError instanceof Error ? logoutError.message : String(logoutError));
@@ -229,6 +257,20 @@ export function YuxiTab() {
     }
   }
 
+  const catalogTabs = useMemo(() => ([
+    ['agents', zh ? 'Agent 商店' : 'Agent Store', agents.length],
+    ['skills', zh ? 'Skill 商店' : 'Skill Store', skills.length],
+    ['knowledge', zh ? '知识库' : 'Knowledge Bases', knowledgeBases.length],
+    ['mcp', 'MCP', mcpServers.length],
+  ] as Array<[CatalogTab, string, number]>).filter(([id]) => (
+    hasPermission(session, CATALOG_PERMISSIONS[id])
+  )), [agents.length, knowledgeBases.length, mcpServers.length, session, skills.length, zh]);
+
+  useEffect(() => {
+    if (!session?.authenticated || catalogTabs.some(([id]) => id === activeCatalog)) return;
+    if (catalogTabs[0]) setActiveCatalog(catalogTabs[0][0]);
+  }, [activeCatalog, catalogTabs, session?.authenticated]);
+
   if (!session) {
     return <div className={css.loading}>{zh ? '正在检查账号登录状态…' : 'Checking account session…'}</div>;
   }
@@ -248,7 +290,11 @@ export function YuxiTab() {
             <span className={css.avatar}>{(session.user?.username || session.user?.uid || 'Y').slice(0, 1).toUpperCase()}</span>
             <span>
               <strong>{session.user?.username || session.user?.uid}</strong>
-              <small>{[session.user?.department_name, session.user?.role].filter(Boolean).join(' · ')}</small>
+              <small>{[
+                session.user?.department_name,
+                session.access?.roles?.map(role => role.name).join(' / ') || session.user?.role,
+                `${Object.keys(session.access?.permissions || {}).length} ${zh ? '项权限' : 'permissions'}`,
+              ].filter(Boolean).join(' · ')}</small>
             </span>
             <button type="button" className={css.secondaryButton} onClick={logout} disabled={busy === 'logout'}>
               {zh ? '退出登录' : 'Sign out'}
@@ -296,11 +342,7 @@ export function YuxiTab() {
       ) : (
         <>
           <div className={css.catalogTabs} role="tablist">
-            {([
-              ['agents', zh ? 'Agent 商店' : 'Agent Store', agents.length],
-              ['skills', zh ? 'Skill 商店' : 'Skill Store', skills.length],
-              ['knowledge', zh ? '知识库' : 'Knowledge Bases', knowledgeBases.length],
-            ] as Array<[CatalogTab, string, number]>).map(([id, label, count]) => (
+            {catalogTabs.map(([id, label, count]) => (
               <button
                 type="button"
                 role="tab"
@@ -379,11 +421,36 @@ export function YuxiTab() {
                   ? '这里与 Agent 内置的知识库工具使用同一个账号会话和权限。'
                   : 'This uses the same account session and permissions as the built-in knowledge tools.'}</p>
                 <textarea value={query} onChange={event => setQuery(event.target.value)} placeholder={zh ? '输入要检索的问题…' : 'Enter a question…'} />
-                <button type="submit" className={css.primaryButton} disabled={!selectedKb || !query.trim() || Boolean(busy)}>
+                <button
+                  type="submit"
+                  className={css.primaryButton}
+                  disabled={!hasPermission(session, 'knowledge.query') || !selectedKb || !query.trim() || Boolean(busy)}
+                >
                   {busy === 'query' ? (zh ? '查询中…' : 'Querying…') : (zh ? '查询选中的知识库' : 'Query selected knowledge base')}
                 </button>
                 {queryResult && <pre className={css.queryResult}>{queryResult}</pre>}
+                {!hasPermission(session, 'knowledge.query') && (
+                  <div className={css.empty}>{zh ? '当前角色只有知识库查看权限，不能执行检索。' : 'The current role can view knowledge bases but cannot query them.'}</div>
+                )}
               </form>
+            </div>
+          )}
+
+          {activeCatalog === 'mcp' && (
+            <div className={css.cardGrid}>
+              {mcpServers.map(server => (
+                <article className={css.resourceCard} key={server.slug}>
+                  <div className={css.cardHeader}>
+                    <span className={css.resourceIcon}>{server.icon || 'M'}</span>
+                    <span className={css.badge}>{server.access?.can_use ? (zh ? '可使用' : 'Usable') : (zh ? '仅查看' : 'View only')}</span>
+                  </div>
+                  <h3>{server.name || server.slug}</h3>
+                  <p>{server.description || (zh ? '暂无描述' : 'No description')}</p>
+                  <div className={css.meta}>{server.slug} · {server.enabled === false ? (zh ? '已停用' : 'Disabled') : (zh ? '线上托管' : 'Hosted online')}</div>
+                  <div className={css.meta}>{zh ? 'MCP 凭据由线上平台保管，本地不复制。' : 'MCP credentials remain managed by the online platform.'}</div>
+                </article>
+              ))}
+              {!mcpServers.length && <div className={css.empty}>{zh ? '当前账号没有可访问的 MCP。' : 'No accessible MCP servers for this account.'}</div>}
             </div>
           )}
         </>

@@ -41,6 +41,7 @@ describe('PluginMarketplaceTab Yuxi Skill marketplace', () => {
       .mockResolvedValueOnce(jsonResponse({
         authenticated: true,
         user: { username: 'openzetc_admin', department_name: '默认部门' },
+        access: { permissions: { 'skill.view': 'global' } },
       }))
       .mockResolvedValueOnce(jsonResponse({
         skills: [

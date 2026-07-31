@@ -68,6 +68,7 @@ export function createYuxiRoute(engine: any) {
 
   route.get("/yuxi/agents", async (c) => {
     try {
+      client.requirePermission("agent.view");
       const result = await client.listAgents();
       return c.json({ agents: Array.isArray(result?.agents) ? result.agents : [] });
     } catch (error) {
@@ -77,6 +78,7 @@ export function createYuxiRoute(engine: any) {
 
   route.post("/yuxi/agents/:slug/install", async (c) => {
     try {
+      client.requirePermission("agent.view");
       const result = await syncYuxiAgent({
         client,
         engine,
@@ -97,6 +99,7 @@ export function createYuxiRoute(engine: any) {
 
   route.get("/yuxi/skills", async (c) => {
     try {
+      client.requirePermission("skill.view");
       const result = await client.listSkills();
       return c.json({ skills: Array.isArray(result?.data) ? result.data : [] });
     } catch (error) {
@@ -106,6 +109,7 @@ export function createYuxiRoute(engine: any) {
 
   route.post("/yuxi/skills/:slug/install", async (c) => {
     try {
+      client.requirePermission("skill.view");
       const body = await safeJson(c);
       const result = await syncYuxiSkill({
         client,
@@ -124,6 +128,7 @@ export function createYuxiRoute(engine: any) {
 
   route.get("/yuxi/knowledge-bases", async (c) => {
     try {
+      client.requirePermission("knowledge.view");
       const result = await client.listKnowledgeBases();
       return c.json({
         knowledgeBases: Array.isArray(result?.databases) ? result.databases : [],
@@ -135,6 +140,7 @@ export function createYuxiRoute(engine: any) {
 
   route.post("/yuxi/knowledge-bases/:kbId/query", async (c) => {
     try {
+      client.requirePermission("knowledge.query");
       const body = await safeJson(c);
       const query = typeof body.query === "string" ? body.query.trim() : "";
       if (!query) {
@@ -153,6 +159,7 @@ export function createYuxiRoute(engine: any) {
 
   route.get("/yuxi/knowledge-bases/:kbId/files", async (c) => {
     try {
+      client.requirePermission("knowledge.view");
       const kbId = c.req.param("kbId");
       const query = String(c.req.query("query") || "").trim().toLocaleLowerCase();
       const requestedLimit = Number(c.req.query("limit"));
@@ -174,6 +181,7 @@ export function createYuxiRoute(engine: any) {
 
   route.get("/yuxi/knowledge-bases/:kbId/files/:fileId/content", async (c) => {
     try {
+      client.requirePermission("knowledge.view");
       const kbId = c.req.param("kbId");
       const fileId = c.req.param("fileId");
       const line = Number(c.req.query("line"));
@@ -201,6 +209,7 @@ export function createYuxiRoute(engine: any) {
 
   route.post("/yuxi/knowledge-bases/:kbId/files/:fileId/find", async (c) => {
     try {
+      client.requirePermission("knowledge.query");
       const body = await safeJson(c);
       const patterns = Array.isArray(body.patterns)
         ? body.patterns.map((pattern: unknown) => String(pattern || "").trim()).filter(Boolean)
@@ -220,6 +229,16 @@ export function createYuxiRoute(engine: any) {
         },
       );
       return c.json(result);
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  route.get("/yuxi/mcp-servers", async (c) => {
+    try {
+      client.requirePermission("mcp.view");
+      const result = await client.listMcpServers();
+      return c.json({ mcpServers: Array.isArray(result?.data) ? result.data : [] });
     } catch (error) {
       return errorResponse(c, error);
     }

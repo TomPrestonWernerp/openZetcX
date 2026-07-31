@@ -12,6 +12,10 @@ interface YuxiSession {
     role?: string;
     department_name?: string | null;
   } | null;
+  access?: {
+    roles: Array<{ id: number; code: string; name: string }>;
+    permissions: Record<string, 'own' | 'department' | 'global'>;
+  } | null;
 }
 
 function updateMessage(state: AutoUpdateState | undefined, zh: boolean): string {
@@ -62,7 +66,7 @@ export function YuxiAccountFooter() {
 
   useEffect(() => {
     let alive = true;
-    void loadSession().catch(() => {
+    void loadSession(true).catch(() => {
       if (alive) setSession({ authenticated: false, user: null });
     });
 
@@ -116,7 +120,7 @@ export function YuxiAccountFooter() {
       : (zh ? '登录 openZetc' : 'Sign in to openZetc');
   const identityMeta = [
     session?.user?.department_name,
-    session?.user?.role,
+    session?.access?.roles?.map(role => role.name).join(' / ') || session?.user?.role,
   ].filter(Boolean).join(' · ');
   const secondaryText = feedback || identityMeta || (
     session?.authenticated

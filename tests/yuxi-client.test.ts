@@ -34,6 +34,22 @@ describe("YuxiClient", () => {
       if (String(url).endsWith("/api/auth/me")) {
         return Response.json({ username: "alice", uid: "u-alice", role: "user" });
       }
+      if (String(url).endsWith("/api/rbac/me")) {
+        return Response.json({
+          user_id: 7,
+          uid: "u-alice",
+          legacy_role: "user",
+          department_id: 2,
+          roles: [{ id: 3, code: "system.member", name: "普通用户" }],
+          permissions: {
+            "agent.view": "global",
+            "skill.view": "global",
+            "knowledge.view": "global",
+            "knowledge.query": "global",
+            "mcp.view": "global",
+          },
+        });
+      }
       if (String(url).endsWith("/api/agent")) {
         return Response.json({ agents: [{ slug: "researcher" }] });
       }
@@ -51,6 +67,10 @@ describe("YuxiClient", () => {
       authenticated: true,
       baseUrl: "http://localhost:5050",
       user: { uid: "u-alice" },
+      access: {
+        roles: [{ code: "system.member", name: "普通用户" }],
+        permissions: { "agent.view": "global" },
+      },
       requireLogin: true,
     });
     expect(session).not.toHaveProperty("accessToken");
@@ -62,6 +82,34 @@ describe("YuxiClient", () => {
     await expect(client.listAgents()).resolves.toEqual({ agents: [{ slug: "researcher" }] });
     const requestHeaders = new Headers(calls.at(-1)?.init.headers);
     expect(requestHeaders.get("authorization")).toBe("Bearer yuxi-token");
+  });
+
+  it("fails closed before requesting a resource when RBAC permission is absent", async () => {
+    fs.mkdirSync(path.join(tempRoot, "integrations"), { recursive: true });
+    fs.writeFileSync(path.join(tempRoot, "integrations", "yuxi.json"), JSON.stringify({
+      schemaVersion: 2,
+      baseUrl: "http://127.0.0.1:5050",
+      accessToken: "valid-token",
+      user: { username: "alice", uid: "u-alice", role: "user" },
+      access: {
+        user_id: 7,
+        uid: "u-alice",
+        legacy_role: "user",
+        roles: [],
+        permissions: { "knowledge.view": "global" },
+      },
+      requireLogin: true,
+      updatedAt: new Date().toISOString(),
+    }));
+    const fetchImpl = vi.fn();
+    const client = new YuxiClient({ openZetcXHome: tempRoot, fetchImpl: fetchImpl as typeof fetch });
+
+    await expect(client.listAgents()).rejects.toMatchObject({
+      status: 403,
+      code: "YUXI_PERMISSION_DENIED",
+      details: { permission: "agent.view" },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
   });
 
   it("clears an expired session after Yuxi rejects verification", async () => {
