@@ -53,6 +53,9 @@ describe("YuxiClient", () => {
       if (String(url).endsWith("/api/agent")) {
         return Response.json({ agents: [{ slug: "researcher" }] });
       }
+      if (String(url).endsWith("/api/system/mcp-servers")) {
+        return Response.json({ success: true, data: [{ slug: "filesystem" }] });
+      }
       return Response.json({ detail: "not found" }, { status: 404 });
     });
     const client = new YuxiClient({ openZetcXHome: tempRoot, fetchImpl: fetchImpl as typeof fetch });
@@ -80,6 +83,11 @@ describe("YuxiClient", () => {
     expect(stored).not.toContain("not-persisted-password");
 
     await expect(client.listAgents()).resolves.toEqual({ agents: [{ slug: "researcher" }] });
+    await expect(client.listMcpServers()).resolves.toEqual({
+      success: true,
+      data: [{ slug: "filesystem" }],
+    });
+    expect(calls.at(-1)?.url).toBe("http://localhost:5050/api/system/mcp-servers");
     const requestHeaders = new Headers(calls.at(-1)?.init.headers);
     expect(requestHeaders.get("authorization")).toBe("Bearer yuxi-token");
   });

@@ -20,6 +20,12 @@ type YuxiSession = {
 
 type CatalogTab = 'agents' | 'skills' | 'knowledge' | 'mcp';
 
+type CatalogRequest = {
+  id: CatalogTab;
+  label: string;
+  request: Promise<any>;
+};
+
 const CATALOG_PERMISSIONS: Record<CatalogTab, string> = {
   agents: 'agent.view',
   skills: 'skill.view',
@@ -64,26 +70,68 @@ export function YuxiTab() {
   const [error, setError] = useState('');
 
   const loadCatalogs = useCallback(async (currentSession: YuxiSession) => {
-    const [agentResponse, skillResponse, kbResponse] = await Promise.all([
-      hasPermission(currentSession, 'agent.view')
-        ? hanaFetch('/api/yuxi/agents').then(res => res.json())
-        : Promise.resolve({ agents: [] }),
-      hasPermission(currentSession, 'skill.view')
-        ? hanaFetch('/api/yuxi/skills').then(res => res.json())
-        : Promise.resolve({ skills: [] }),
-      hasPermission(currentSession, 'knowledge.view')
-        ? hanaFetch('/api/yuxi/knowledge-bases').then(res => res.json())
-        : Promise.resolve({ knowledgeBases: [] }),
-    ]);
-    const mcpResponse = hasPermission(currentSession, 'mcp.view')
-      ? await hanaFetch('/api/yuxi/mcp-servers').then(res => res.json())
-      : { mcpServers: [] };
+    const requests: CatalogRequest[] = [
+      {
+        id: 'agents',
+        label: 'Agent',
+        request: hasPermission(currentSession, 'agent.view')
+          ? hanaFetch('/api/yuxi/agents').then(res => res.json())
+          : Promise.resolve({ agents: [] }),
+      },
+      {
+        id: 'skills',
+        label: 'Skill',
+        request: hasPermission(currentSession, 'skill.view')
+          ? hanaFetch('/api/yuxi/skills').then(res => res.json())
+          : Promise.resolve({ skills: [] }),
+      },
+      {
+        id: 'knowledge',
+        label: zh ? '知识库' : 'Knowledge bases',
+        request: hasPermission(currentSession, 'knowledge.view')
+          ? hanaFetch('/api/yuxi/knowledge-bases').then(res => res.json())
+          : Promise.resolve({ knowledgeBases: [] }),
+      },
+      {
+        id: 'mcp',
+        label: 'MCP',
+        request: hasPermission(currentSession, 'mcp.view')
+          ? hanaFetch('/api/yuxi/mcp-servers').then(res => res.json())
+          : Promise.resolve({ mcpServers: [] }),
+      },
+    ];
+    const results = await Promise.allSettled(requests.map(item => item.request));
+    const payload = (id: CatalogTab) => {
+      const index = requests.findIndex(item => item.id === id);
+      const result = results[index];
+      return result?.status === 'fulfilled' ? result.value : {};
+    };
+    const agentResponse = payload('agents');
+    const skillResponse = payload('skills');
+    const kbResponse = payload('knowledge');
+    const mcpResponse = payload('mcp');
     setAgents(agentResponse.agents || []);
     setSkills(skillResponse.skills || []);
     setKnowledgeBases(kbResponse.knowledgeBases || []);
     setMcpServers(mcpResponse.mcpServers || []);
-    setSelectedKb(current => current || kbResponse.knowledgeBases?.[0]?.kb_id || '');
-  }, []);
+    setSelectedKb(current => (
+      kbResponse.knowledgeBases?.some((kb: any) => kb.kb_id === current)
+        ? current
+        : (kbResponse.knowledgeBases?.[0]?.kb_id || '')
+    ));
+
+    const failures = results.flatMap((result, index) => {
+      if (result.status === 'fulfilled') return [];
+      const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
+      return [`${requests[index].label}${reason ? `（${reason}）` : ''}`];
+    });
+    setError(failures.length
+      ? (zh
+          ? `部分资源暂时无法加载：${failures.join('、')}。其他可用资源已正常显示。`
+          : `Some resources could not be loaded: ${failures.join(', ')}. Other available resources are still shown.`)
+      : '');
+    return failures;
+  }, [zh]);
 
   const loadSession = useCallback(async (verify = false) => {
     setError('');

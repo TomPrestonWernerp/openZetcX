@@ -272,7 +272,7 @@ export class YuxiClient {
 
   async listMcpServers() {
     this.requirePermission("mcp.view");
-    return this.request<{ success: boolean; data: any[] }>("/api/mcp");
+    return this.request<{ success: boolean; data: any[] }>("/api/system/mcp-servers");
   }
 
   async getSkillTree(slug: string) {
