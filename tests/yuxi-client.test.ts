@@ -120,6 +120,56 @@ describe("YuxiClient", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
+  it("submits a packaged local resource with the authenticated account", async () => {
+    fs.mkdirSync(path.join(tempRoot, "integrations"), { recursive: true });
+    fs.writeFileSync(path.join(tempRoot, "integrations", "yuxi.json"), JSON.stringify({
+      schemaVersion: 2,
+      baseUrl: "http://127.0.0.1:5050",
+      accessToken: "submission-token",
+      user: { username: "alice", uid: "u-alice", role: "user" },
+      access: {
+        user_id: 7,
+        uid: "u-alice",
+        legacy_role: "user",
+        roles: [],
+        permissions: { "resource_submission.submit": "own" },
+      },
+      requireLogin: true,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    const fetchImpl = vi.fn(async (url: string | URL | Request, init: RequestInit = {}) => {
+      expect(String(url)).toBe("http://127.0.0.1:5050/api/resource-submissions");
+      expect(init.method).toBe("POST");
+      expect(new Headers(init.headers).get("authorization")).toBe("Bearer submission-token");
+      expect(init.body).toBeInstanceOf(FormData);
+      const form = init.body as FormData;
+      expect(form.get("resource_type")).toBe("skill");
+      expect(JSON.parse(String(form.get("manifest")))).toMatchObject({
+        slug: "weekly-report",
+        source_id: "weekly-report",
+      });
+      const uploaded = form.get("package") as File;
+      expect(uploaded.name).toBe("weekly-report.zip");
+      expect(uploaded.size).toBe(4);
+      return Response.json({
+        success: true,
+        data: { submission_id: "sub-1", status: "pending" },
+      });
+    });
+    const client = new YuxiClient({ openZetcXHome: tempRoot, fetchImpl: fetchImpl as typeof fetch });
+
+    await expect(client.submitResource({
+      resourceType: "skill",
+      manifest: { slug: "weekly-report", source_id: "weekly-report" },
+      packageData: Buffer.from([1, 2, 3, 4]),
+      packageFilename: "weekly-report.zip",
+    })).resolves.toMatchObject({
+      success: true,
+      data: { submission_id: "sub-1", status: "pending" },
+    });
+  });
+
   it("clears an expired session after Yuxi rejects verification", async () => {
     const fetchImpl = vi.fn(async () => Response.json({ detail: "expired" }, { status: 401 }));
     const client = new YuxiClient({ openZetcXHome: tempRoot, fetchImpl: fetchImpl as typeof fetch });

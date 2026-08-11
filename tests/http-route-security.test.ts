@@ -51,6 +51,8 @@ describe("HTTP route security policy", () => {
       "/api/yuxi/skills",
       "/api/yuxi/knowledge-bases",
       "/api/yuxi/mcp-servers",
+      "/api/yuxi/local-resources",
+      "/api/yuxi/resource-submissions",
     ]) {
       expect(classifyHttpRoute({ method: "GET", path }), path)
         .toMatchObject({ kind: "scope", scope: "settings.read" });
@@ -62,6 +64,7 @@ describe("HTTP route security policy", () => {
       "/api/yuxi/agents/researcher/install",
       "/api/yuxi/skills/research-helper/install",
       "/api/yuxi/knowledge-bases/kb-1/query",
+      "/api/yuxi/local-resources/skill/weekly-report/submit",
     ]) {
       expect(classifyHttpRoute({ method: "POST", path }), path)
         .toMatchObject({ kind: "scope", scope: "settings.write" });

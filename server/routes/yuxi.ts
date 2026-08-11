@@ -1,8 +1,119 @@
 import { Hono } from "hono";
+import fs from "fs";
+import os from "os";
+import path from "path";
 import { emitAppEvent } from "../app-events.ts";
 import { safeJson } from "../hono-helpers.ts";
 import { YuxiClientError } from "../../lib/yuxi/client.ts";
 import { syncYuxiAgent, syncYuxiSkill } from "../../lib/yuxi/sync.ts";
+import { parseSkillMetadata } from "../../lib/skills/skill-metadata.ts";
+import { loadConfig } from "../../lib/memory/config-loader.ts";
+import { writeZipFromDirectory } from "../../lib/zip-writer.ts";
+
+const LOCAL_RESOURCE_TYPES = new Set(["agent", "skill", "mcp"]);
+
+function readText(filePath: string, maximum = 20_000) {
+  try {
+    return fs.readFileSync(filePath, "utf-8").slice(0, maximum);
+  } catch {
+    return "";
+  }
+}
+
+function readableDescription(value: string) {
+  return value.replace(/<!--[\s\S]*?-->/g, "").trim();
+}
+
+function localMcpConnectors(engine: any) {
+  const entry = engine.pluginManager?.getPlugin?.("mcp");
+  const runtime = entry?.instance?.ctx?._mcpRuntime;
+  const state = runtime?.getState?.() || {};
+  return Array.isArray(state.connectors) ? state.connectors : [];
+}
+
+function listLocalResources(engine: any) {
+  const agents = (engine.listAgents?.() || []).map((agent: any) => ({
+    type: "agent",
+    sourceId: agent.id,
+    slug: agent.id,
+    name: agent.name || agent.id,
+    description: readableDescription(readText(path.join(engine.agentsDir, agent.id, "description.md"), 4_000))
+      || readableDescription(String(agent.identity || ""))
+      || "",
+  }));
+  const skills = fs.existsSync(engine.userSkillsDir)
+    ? fs.readdirSync(engine.userSkillsDir, { withFileTypes: true })
+      .filter(entry => entry.isDirectory() && fs.existsSync(path.join(engine.userSkillsDir, entry.name, "SKILL.md")))
+      .map(entry => {
+        const metadata = parseSkillMetadata(
+          readText(path.join(engine.userSkillsDir, entry.name, "SKILL.md"), 200_000),
+          entry.name,
+        );
+        return {
+          type: "skill",
+          sourceId: entry.name,
+          slug: metadata.name || entry.name,
+          name: metadata.name || entry.name,
+          description: metadata.description || "",
+        };
+      })
+    : [];
+  const mcp = localMcpConnectors(engine).map((connector: any) => ({
+    type: "mcp",
+    sourceId: connector.id,
+    slug: connector.id,
+    name: connector.name || connector.id,
+    description: connector.description || "",
+    transport: connector.transport,
+  }));
+  return [...agents, ...skills, ...mcp];
+}
+
+function findLocalResource(engine: any, resourceType: string, sourceId: string) {
+  return listLocalResources(engine).find(item => item.type === resourceType && item.sourceId === sourceId) || null;
+}
+
+function agentSubmissionManifest(engine: any, sourceId: string, resource: any) {
+  const agentDir = path.join(engine.agentsDir, sourceId);
+  const config = loadConfig(path.join(agentDir, "config.yaml")) as any;
+  return {
+    source_id: sourceId,
+    slug: resource.slug,
+    name: resource.name,
+    description: resource.description,
+    identity: readText(path.join(agentDir, "identity.md")),
+    skills: Array.isArray(config?.skills?.enabled) ? config.skills.enabled : [],
+    mcp: Object.entries(config?.mcp?.connectors || {})
+      .filter(([, value]: [string, any]) => value?.enabled !== false)
+      .map(([id]) => id),
+    source: "openZetcX",
+  };
+}
+
+function mcpSubmissionManifest(engine: any, sourceId: string, resource: any) {
+  const connector = localMcpConnectors(engine).find((item: any) => item.id === sourceId);
+  if (!connector) return null;
+  const transport = connector.transport === "stdio"
+    ? "stdio"
+    : connector.transport === "sse"
+      ? "sse"
+      : "streamable_http";
+  return {
+    source_id: sourceId,
+    slug: resource.slug,
+    name: resource.name,
+    description: resource.description,
+    transport,
+    url: connector.url || null,
+    command: connector.command || null,
+    args: Array.isArray(connector.args) ? connector.args : [],
+    timeout: connector.timeout || null,
+    env_keys: Object.keys(connector.env || {}),
+    header_keys: Object.keys(connector.headers || {}),
+    tags: ["openZetcX"],
+    source: "openZetcX",
+  };
+}
 
 function errorResponse(c: any, error: unknown) {
   if (error instanceof YuxiClientError) {
@@ -239,6 +350,82 @@ export function createYuxiRoute(engine: any) {
       client.requirePermission("mcp.view");
       const result = await client.listMcpServers();
       return c.json({ mcpServers: Array.isArray(result?.data) ? result.data : [] });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  route.get("/yuxi/local-resources", (c) => {
+    try {
+      client.requirePermission("resource_submission.submit");
+      return c.json({ resources: listLocalResources(engine) });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  route.get("/yuxi/resource-submissions", async (c) => {
+    try {
+      client.requirePermission("resource_submission.submit");
+      const result = await client.listMyResourceSubmissions();
+      return c.json({ submissions: Array.isArray(result?.data) ? result.data : [] });
+    } catch (error) {
+      return errorResponse(c, error);
+    }
+  });
+
+  route.post("/yuxi/local-resources/:resourceType/:sourceId/submit", async (c) => {
+    try {
+      client.requirePermission("resource_submission.submit");
+      const resourceType = c.req.param("resourceType");
+      const sourceId = c.req.param("sourceId");
+      if (!LOCAL_RESOURCE_TYPES.has(resourceType)) {
+        return c.json({ error: "unsupported local resource type", code: "LOCAL_RESOURCE_TYPE_INVALID" }, 400);
+      }
+      const resource = findLocalResource(engine, resourceType, sourceId);
+      if (!resource) {
+        return c.json({ error: "local resource not found", code: "LOCAL_RESOURCE_NOT_FOUND" }, 404);
+      }
+
+      if (resourceType === "agent") {
+        const result = await client.submitResource({
+          resourceType: "agent",
+          manifest: agentSubmissionManifest(engine, sourceId, resource),
+        });
+        return c.json(result);
+      }
+      if (resourceType === "mcp") {
+        const manifest = mcpSubmissionManifest(engine, sourceId, resource);
+        if (!manifest) return c.json({ error: "local MCP not found" }, 404);
+        const result = await client.submitResource({ resourceType: "mcp", manifest });
+        return c.json(result);
+      }
+
+      const skillDir = path.resolve(path.join(engine.userSkillsDir, sourceId));
+      const skillsRoot = path.resolve(engine.userSkillsDir);
+      if (path.dirname(skillDir) !== skillsRoot || !fs.existsSync(path.join(skillDir, "SKILL.md"))) {
+        return c.json({ error: "local skill not found", code: "LOCAL_RESOURCE_NOT_FOUND" }, 404);
+      }
+      const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "openzetcx-skill-submission-"));
+      const zipPath = path.join(tempDir, `${sourceId}.zip`);
+      try {
+        await writeZipFromDirectory(skillDir, zipPath);
+        const result = await client.submitResource({
+          resourceType: "skill",
+          manifest: {
+            source_id: sourceId,
+            slug: resource.slug,
+            name: resource.name,
+            description: resource.description,
+            source: "openZetcX",
+          },
+          packageData: fs.readFileSync(zipPath),
+          packageFilename: `${sourceId}.zip`,
+        });
+        return c.json(result);
+      } finally {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
     } catch (error) {
       return errorResponse(c, error);
     }

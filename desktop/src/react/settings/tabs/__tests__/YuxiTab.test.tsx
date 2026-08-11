@@ -62,6 +62,11 @@ describe('YuxiTab', () => {
     render(<YuxiTab />);
 
     expect(await screen.findByText('助手')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '查看' }));
+    expect(screen.getByRole('dialog', { name: '助手' })).toBeInTheDocument();
+    expect(screen.getByText('assistant')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     expect(screen.getByRole('alert')).toHaveTextContent('部分资源暂时无法加载：MCP（Not Found）');
     expect(screen.getByRole('tab', { name: /Agent 商店/ })).toHaveTextContent('1');
     expect(screen.getByRole('tab', { name: /Skill 商店/ })).toHaveTextContent('1');
@@ -70,5 +75,68 @@ describe('YuxiTab', () => {
     fireEvent.click(screen.getByRole('tab', { name: /知识库/ }));
     expect(await screen.findByText('国家标准')).toBeInTheDocument();
     await waitFor(() => expect(hanaFetch).toHaveBeenCalledWith('/api/yuxi/mcp-servers'));
+  });
+
+  it('submits a local resource and renders its pending review state', async () => {
+    window.i18n = {
+      locale: 'en-US',
+      load: vi.fn(async () => {}),
+      t: (key: string) => key,
+    } as unknown as typeof window.i18n;
+    hanaFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith('/api/yuxi/session')) {
+        return jsonResponse({
+          authenticated: true,
+          baseUrl: 'http://127.0.0.1:15050',
+          requireLogin: true,
+          user: { username: 'alice' },
+          access: {
+            roles: [{ id: 2, code: 'system.member', name: 'Member' }],
+            permissions: { 'resource_submission.submit': 'own' },
+          },
+        });
+      }
+      if (path === '/api/yuxi/local-resources') {
+        return jsonResponse({
+          resources: [{
+            type: 'skill',
+            sourceId: 'weekly-report',
+            slug: 'weekly-report',
+            name: 'Weekly Report',
+            description: 'Summarizes weekly work.',
+          }],
+        });
+      }
+      if (path === '/api/yuxi/resource-submissions') return jsonResponse({ submissions: [] });
+      if (path === '/api/yuxi/local-resources/skill/weekly-report/submit' && init?.method === 'POST') {
+        return jsonResponse({
+          data: {
+            submission_id: 'sub-1',
+            resource_type: 'skill',
+            slug: 'weekly-report',
+            name: 'Weekly Report',
+            status: 'pending',
+            manifest: { source_id: 'weekly-report' },
+          },
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<YuxiTab />);
+
+    expect(await screen.findByText('Submit local resources')).toBeInTheDocument();
+    expect(screen.getByRole('tab', { name: 'Agent (0)' })).toHaveAttribute('aria-selected', 'true');
+    expect(screen.getByRole('tab', { name: 'Skill (1)' })).toHaveAttribute('aria-selected', 'false');
+    expect(screen.getByRole('tab', { name: 'MCP (0)' })).toHaveAttribute('aria-selected', 'false');
+    fireEvent.click(screen.getByRole('tab', { name: 'Skill (1)' }));
+    expect(screen.getByText('Weekly Report')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }));
+
+    expect(await screen.findByText('Pending review')).toBeInTheDocument();
+    await waitFor(() => expect(hanaFetch).toHaveBeenCalledWith(
+      '/api/yuxi/local-resources/skill/weekly-report/submit',
+      { method: 'POST', timeout: 120_000 },
+    ));
   });
 });

@@ -571,6 +571,8 @@ function isYuxiSettingsReadRoute(verb, routePath) {
     || routePath === "/api/yuxi/skills"
     || routePath === "/api/yuxi/knowledge-bases"
     || routePath === "/api/yuxi/mcp-servers"
+    || routePath === "/api/yuxi/local-resources"
+    || routePath === "/api/yuxi/resource-submissions"
     || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/files$/.test(routePath)
     || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/files\/[^/]+\/content$/.test(routePath);
 }
@@ -582,6 +584,7 @@ function isYuxiSettingsWriteRoute(verb, routePath) {
     || routePath === "/api/yuxi/settings"
     || /^\/api\/yuxi\/agents\/[^/]+\/install$/.test(routePath)
     || /^\/api\/yuxi\/skills\/[^/]+\/install$/.test(routePath)
+    || /^\/api\/yuxi\/local-resources\/[^/]+\/[^/]+\/submit$/.test(routePath)
     || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/query$/.test(routePath)
     || /^\/api\/yuxi\/knowledge-bases\/[^/]+\/files\/[^/]+\/find$/.test(routePath);
 }

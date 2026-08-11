@@ -275,6 +275,40 @@ export class YuxiClient {
     return this.request<{ success: boolean; data: any[] }>("/api/system/mcp-servers");
   }
 
+  async listMyResourceSubmissions() {
+    this.requirePermission("resource_submission.submit");
+    return this.request<{ success: boolean; data: any[] }>("/api/resource-submissions/mine");
+  }
+
+  async submitResource({
+    resourceType,
+    manifest,
+    packageData,
+    packageFilename,
+  }: {
+    resourceType: "agent" | "skill" | "mcp";
+    manifest: Record<string, unknown>;
+    packageData?: Buffer | Uint8Array | null;
+    packageFilename?: string | null;
+  }) {
+    this.requirePermission("resource_submission.submit");
+    const form = new FormData();
+    form.set("resource_type", resourceType);
+    form.set("manifest", JSON.stringify(manifest));
+    if (packageData) {
+      const bytes = new Uint8Array(packageData);
+      form.set(
+        "package",
+        new Blob([bytes], { type: "application/zip" }),
+        packageFilename || `${String(manifest.slug || resourceType)}.zip`,
+      );
+    }
+    return this.request<{ success: boolean; data: any }>("/api/resource-submissions", {
+      method: "POST",
+      body: form,
+    });
+  }
+
   async getSkillTree(slug: string) {
     this.requirePermission("skill.view");
     return this.request<{ success: boolean; data: any[] }>(

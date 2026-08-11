@@ -19,11 +19,37 @@ type YuxiSession = {
 };
 
 type CatalogTab = 'agents' | 'skills' | 'knowledge' | 'mcp';
+type LocalResourceType = 'agent' | 'skill' | 'mcp';
+
+type LocalResource = {
+  type: LocalResourceType;
+  sourceId: string;
+  slug: string;
+  name: string;
+  description?: string;
+  transport?: string;
+};
+
+type ResourceSubmission = {
+  submission_id: string;
+  resource_type: LocalResourceType;
+  slug: string;
+  name: string;
+  status: 'pending' | 'reviewing' | 'approved' | 'rejected';
+  review_comment?: string | null;
+  manifest?: { source_id?: string };
+  created_at?: string;
+};
 
 type CatalogRequest = {
   id: CatalogTab;
   label: string;
   request: Promise<any>;
+};
+
+type CatalogPreview = {
+  type: 'agent' | 'skill';
+  item: any;
 };
 
 const CATALOG_PERMISSIONS: Record<CatalogTab, string> = {
@@ -50,6 +76,13 @@ function resultText(value: any) {
   return typeof result === 'string' ? result : JSON.stringify(result, null, 2);
 }
 
+function submissionStatusLabel(status: ResourceSubmission['status'], zh: boolean) {
+  const labels = zh
+    ? { pending: '待部门审核', reviewing: '发布中', approved: '已公开', rejected: '已驳回' }
+    : { pending: 'Pending review', reviewing: 'Publishing', approved: 'Published', rejected: 'Rejected' };
+  return labels[status] || status;
+}
+
 export function YuxiTab() {
   const zh = (window.i18n?.locale || 'zh-CN').toLowerCase().startsWith('zh');
   const [session, setSession] = useState<YuxiSession | null>(null);
@@ -58,16 +91,20 @@ export function YuxiTab() {
   const [password, setPassword] = useState('');
   const [requireLogin, setRequireLogin] = useState(true);
   const [activeCatalog, setActiveCatalog] = useState<CatalogTab>('agents');
+  const [activeLocalResourceType, setActiveLocalResourceType] = useState<LocalResourceType>('agent');
   const [agents, setAgents] = useState<any[]>([]);
   const [skills, setSkills] = useState<any[]>([]);
   const [knowledgeBases, setKnowledgeBases] = useState<any[]>([]);
   const [mcpServers, setMcpServers] = useState<any[]>([]);
+  const [localResources, setLocalResources] = useState<LocalResource[]>([]);
+  const [resourceSubmissions, setResourceSubmissions] = useState<ResourceSubmission[]>([]);
   const [selectedKb, setSelectedKb] = useState('');
   const [query, setQuery] = useState('');
   const [queryResult, setQueryResult] = useState('');
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [catalogPreview, setCatalogPreview] = useState<CatalogPreview | null>(null);
 
   const loadCatalogs = useCallback(async (currentSession: YuxiSession) => {
     const requests: CatalogRequest[] = [
@@ -125,6 +162,23 @@ export function YuxiTab() {
       const reason = result.reason instanceof Error ? result.reason.message : String(result.reason);
       return [`${requests[index].label}${reason ? `（${reason}）` : ''}`];
     });
+    if (hasPermission(currentSession, 'resource_submission.submit')) {
+      try {
+        const [localResponse, submissionResponse] = await Promise.all([
+          hanaFetch('/api/yuxi/local-resources').then(res => res.json()),
+          hanaFetch('/api/yuxi/resource-submissions').then(res => res.json()),
+        ]);
+        setLocalResources(Array.isArray(localResponse.resources) ? localResponse.resources : []);
+        setResourceSubmissions(Array.isArray(submissionResponse.submissions) ? submissionResponse.submissions : []);
+      } catch {
+        setLocalResources([]);
+        setResourceSubmissions([]);
+        failures.push(zh ? '本地资源投稿状态' : 'Local submission status');
+      }
+    } else {
+      setLocalResources([]);
+      setResourceSubmissions([]);
+    }
     setError(failures.length
       ? (zh
           ? `部分资源暂时无法加载：${failures.join('、')}。其他可用资源已正常显示。`
@@ -208,6 +262,8 @@ export function YuxiTab() {
       setSkills([]);
       setKnowledgeBases([]);
       setMcpServers([]);
+      setLocalResources([]);
+      setResourceSubmissions([]);
       setNotice(zh ? '已退出登录。' : 'Signed out.');
     } catch (logoutError) {
       setError(logoutError instanceof Error ? logoutError.message : String(logoutError));
@@ -284,6 +340,36 @@ export function YuxiTab() {
     }
   }
 
+  async function submitLocalResource(resource: LocalResource) {
+    setBusy(`submit:${resource.type}:${resource.sourceId}`);
+    setError('');
+    setNotice('');
+    try {
+      const response = await hanaFetch(
+        `/api/yuxi/local-resources/${encodeURIComponent(resource.type)}/${encodeURIComponent(resource.sourceId)}/submit`,
+        { method: 'POST', timeout: 120_000 },
+      );
+      const data = await response.json();
+      if (data?.data) {
+        setResourceSubmissions(current => [data.data, ...current]);
+      }
+      setNotice(zh
+        ? `“${resource.name}”已提交，需由所属部门管理员审核后才会公开。`
+        : `“${resource.name}” was submitted and will become public after department review.`);
+    } catch (submitError) {
+      setError(submitError instanceof Error ? submitError.message : String(submitError));
+    } finally {
+      setBusy('');
+    }
+  }
+
+  function latestSubmission(resource: LocalResource) {
+    return resourceSubmissions.find(item => (
+      item.resource_type === resource.type
+      && (item.manifest?.source_id === resource.sourceId || item.slug === resource.slug)
+    ));
+  }
+
   async function runKnowledgeQuery(event: FormEvent) {
     event.preventDefault();
     if (!selectedKb || !query.trim()) return;
@@ -314,6 +400,17 @@ export function YuxiTab() {
     hasPermission(session, CATALOG_PERMISSIONS[id])
   )), [agents.length, knowledgeBases.length, mcpServers.length, session, skills.length, zh]);
 
+  const localResourceCounts = useMemo(() => {
+    const counts: Record<LocalResourceType, number> = { agent: 0, skill: 0, mcp: 0 };
+    for (const resource of localResources) counts[resource.type] += 1;
+    return counts;
+  }, [localResources]);
+
+  const visibleLocalResources = useMemo(
+    () => localResources.filter(resource => resource.type === activeLocalResourceType),
+    [activeLocalResourceType, localResources],
+  );
+
   useEffect(() => {
     if (!session?.authenticated || catalogTabs.some(([id]) => id === activeCatalog)) return;
     if (catalogTabs[0]) setActiveCatalog(catalogTabs[0][0]);
@@ -328,10 +425,7 @@ export function YuxiTab() {
       <section className={css.accountCard}>
         <div>
           <div className={css.eyebrow}>openZetc</div>
-          <h2>{zh ? '统一账号与资源中心' : 'Unified account and resource hub'}</h2>
-          <p>{zh
-            ? '使用统一账号验证身份，并在该账号权限范围内同步 Agent、Skill 与知识库。密码只用于身份验证，本地不保存。'
-            : 'Verify with your unified account and sync agents, skills, and knowledge bases visible to that account. Your password is never stored.'}</p>
+          <h2>{zh ? '统一账号' : 'Unified account'}</h2>
         </div>
         {session.authenticated && (
           <div className={css.accountIdentity}>
@@ -389,6 +483,87 @@ export function YuxiTab() {
         </form>
       ) : (
         <>
+          {hasPermission(session, 'resource_submission.submit') && (
+            <section className={css.submissionSection}>
+              <div className={css.sectionHeading}>
+                <div>
+                  <h3>{zh ? '本地资源投稿' : 'Submit local resources'}</h3>
+                  <p>{zh
+                    ? '将本地 Agent、Skill 或 MCP 一键投稿到平台。部门管理员审核通过后，才会进入公共市场。MCP 密钥不会上传。'
+                    : 'Submit a local Agent, Skill, or MCP. It enters the public catalog only after department approval; MCP secrets are never uploaded.'}</p>
+                </div>
+              </div>
+              <div className={css.localResourceTabs} role="tablist" aria-label={zh ? '本地资源类型' : 'Local resource type'}>
+                {(['agent', 'skill', 'mcp'] as const).map(resourceType => (
+                  <button
+                    type="button"
+                    role="tab"
+                    aria-label={`${resourceType === 'agent' ? 'Agent' : resourceType === 'skill' ? 'Skill' : 'MCP'} (${localResourceCounts[resourceType]})`}
+                    aria-selected={activeLocalResourceType === resourceType}
+                    className={activeLocalResourceType === resourceType ? css.activeLocalResourceTab : ''}
+                    key={resourceType}
+                    onClick={() => setActiveLocalResourceType(resourceType)}
+                  >
+                    {resourceType === 'agent' ? 'Agent' : resourceType === 'skill' ? 'Skill' : 'MCP'}
+                    <span>{localResourceCounts[resourceType]}</span>
+                  </button>
+                ))}
+              </div>
+              <div className={css.localResourceGrid}>
+                {visibleLocalResources.map(resource => {
+                  const submission = latestSubmission(resource);
+                  const locked = submission?.status === 'pending'
+                    || submission?.status === 'reviewing'
+                    || submission?.status === 'approved';
+                  const busyKey = `submit:${resource.type}:${resource.sourceId}`;
+                  return (
+                    <article className={css.localResourceCard} key={`${resource.type}:${resource.sourceId}`}>
+                      <div className={css.localResourceTitle}>
+                        <span className={css.resourceIcon}>{resource.type === 'agent' ? 'A' : resource.type === 'skill' ? 'S' : 'M'}</span>
+                        <span>
+                          <strong>{resource.name}</strong>
+                          <small>{resource.type.toUpperCase()} · {resource.sourceId}</small>
+                        </span>
+                      </div>
+                      <p>{resource.description || (zh ? '暂无描述' : 'No description')}</p>
+                      <div className={css.submissionActions}>
+                        {submission && (
+                          <span className={`${css.submissionStatus} ${css[`status_${submission.status}`] || ''}`}>
+                            {submissionStatusLabel(submission.status, zh)}
+                          </span>
+                        )}
+                        <button
+                          type="button"
+                          className={css.primaryButton}
+                          onClick={() => void submitLocalResource(resource)}
+                          disabled={Boolean(busy) || locked}
+                        >
+                          {busy === busyKey
+                            ? (zh ? '提交中…' : 'Submitting…')
+                            : submission?.status === 'approved'
+                              ? (zh ? '已公开' : 'Published')
+                            : submission?.status === 'rejected'
+                              ? (zh ? '重新提交' : 'Resubmit')
+                              : (zh ? '提交部门审核' : 'Submit for review')}
+                        </button>
+                      </div>
+                      {submission?.review_comment && (
+                        <div className={css.reviewComment}>{submission.review_comment}</div>
+                      )}
+                    </article>
+                  );
+                })}
+                {!visibleLocalResources.length && (
+                  <div className={css.empty}>
+                    {zh
+                      ? `当前没有可投稿的本地 ${activeLocalResourceType === 'agent' ? 'Agent' : activeLocalResourceType === 'skill' ? 'Skill' : 'MCP'}。`
+                      : `No local ${activeLocalResourceType === 'agent' ? 'Agent' : activeLocalResourceType === 'skill' ? 'Skill' : 'MCP'} resources are available to submit.`}
+                  </div>
+                )}
+              </div>
+            </section>
+          )}
+
           <div className={css.catalogTabs} role="tablist">
             {catalogTabs.map(([id, label, count]) => (
               <button
@@ -418,9 +593,18 @@ export function YuxiTab() {
                   <h3>{agent.name || agent.slug}</h3>
                   <p>{agent.description || (zh ? '暂无描述' : 'No description')}</p>
                   <div className={css.meta}>{agent.backend_id} · {agent.slug}</div>
-                  <button type="button" className={css.primaryButton} onClick={() => void installAgent(agent.slug)} disabled={Boolean(busy)}>
-                    {busy === `agent:${agent.slug}` ? (zh ? '正在同步…' : 'Syncing…') : (zh ? '安装 / 同步到本地' : 'Install / sync locally')}
-                  </button>
+                  <div className={css.resourceActions}>
+                    <button
+                      type="button"
+                      className={css.viewButton}
+                      onClick={() => setCatalogPreview({ type: 'agent', item: agent })}
+                    >
+                      {zh ? '查看' : 'View'}
+                    </button>
+                    <button type="button" className={css.primaryButton} onClick={() => void installAgent(agent.slug)} disabled={Boolean(busy)}>
+                      {busy === `agent:${agent.slug}` ? (zh ? '正在同步…' : 'Syncing…') : (zh ? '安装 / 同步到本地' : 'Install / sync locally')}
+                    </button>
+                  </div>
                 </article>
               ))}
               {!agents.length && <div className={css.empty}>{zh ? '当前账号没有可访问的 Agent。' : 'No accessible agents for this account.'}</div>}
@@ -438,9 +622,18 @@ export function YuxiTab() {
                   <h3>{skill.name || skill.slug}</h3>
                   <p>{skill.description || (zh ? '暂无描述' : 'No description')}</p>
                   <div className={css.meta}>{skill.slug}{skill.version ? ` · v${skill.version}` : ''}</div>
-                  <button type="button" className={css.primaryButton} onClick={() => void installSkill(skill.slug)} disabled={Boolean(busy)}>
-                    {busy === `skill:${skill.slug}` ? (zh ? '正在同步…' : 'Syncing…') : (zh ? '安装 / 同步到本地' : 'Install / sync locally')}
-                  </button>
+                  <div className={css.resourceActions}>
+                    <button
+                      type="button"
+                      className={css.viewButton}
+                      onClick={() => setCatalogPreview({ type: 'skill', item: skill })}
+                    >
+                      {zh ? '查看' : 'View'}
+                    </button>
+                    <button type="button" className={css.primaryButton} onClick={() => void installSkill(skill.slug)} disabled={Boolean(busy)}>
+                      {busy === `skill:${skill.slug}` ? (zh ? '正在同步…' : 'Syncing…') : (zh ? '安装 / 同步到本地' : 'Install / sync locally')}
+                    </button>
+                  </div>
                 </article>
               ))}
               {!skills.length && <div className={css.empty}>{zh ? '当前账号没有可访问的 Skill。' : 'No accessible skills for this account.'}</div>}
@@ -499,6 +692,67 @@ export function YuxiTab() {
                 </article>
               ))}
               {!mcpServers.length && <div className={css.empty}>{zh ? '当前账号没有可访问的 MCP。' : 'No accessible MCP servers for this account.'}</div>}
+            </div>
+          )}
+
+          {catalogPreview && (
+            <div
+              className={css.detailOverlay}
+              role="presentation"
+              onMouseDown={event => {
+                if (event.target === event.currentTarget) setCatalogPreview(null);
+              }}
+            >
+              <section
+                className={css.detailDialog}
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="catalog-resource-detail-title"
+              >
+                <div className={css.detailHeader}>
+                  <div>
+                    <span className={css.detailType}>{catalogPreview.type === 'agent' ? 'Agent' : 'Skill'}</span>
+                    <h3 id="catalog-resource-detail-title">
+                      {catalogPreview.item.name || catalogPreview.item.slug}
+                    </h3>
+                  </div>
+                  <button type="button" className={css.closeButton} onClick={() => setCatalogPreview(null)} aria-label={zh ? '关闭资源详情' : 'Close resource details'}>
+                    ×
+                  </button>
+                </div>
+                <p className={css.detailDescription}>
+                  {catalogPreview.item.description || (zh ? '暂无描述' : 'No description')}
+                </p>
+                <dl className={css.detailMeta}>
+                  <div><dt>{zh ? '标识' : 'Identifier'}</dt><dd>{catalogPreview.item.slug}</dd></div>
+                  {catalogPreview.type === 'agent' && catalogPreview.item.backend_id && (
+                    <div><dt>{zh ? '类型' : 'Type'}</dt><dd>{catalogPreview.item.backend_id}</dd></div>
+                  )}
+                  {catalogPreview.type === 'skill' && catalogPreview.item.version && (
+                    <div><dt>{zh ? '版本' : 'Version'}</dt><dd>{catalogPreview.item.version}</dd></div>
+                  )}
+                  <div><dt>{zh ? '访问范围' : 'Access'}</dt><dd>{accessLabel(catalogPreview.item, zh)}</dd></div>
+                </dl>
+                <div className={css.detailActions}>
+                  <button type="button" className={css.secondaryButton} onClick={() => setCatalogPreview(null)}>
+                    {zh ? '关闭' : 'Close'}
+                  </button>
+                  <button
+                    type="button"
+                    className={css.primaryButton}
+                    disabled={Boolean(busy)}
+                    onClick={() => {
+                      const item = catalogPreview.item;
+                      const type = catalogPreview.type;
+                      setCatalogPreview(null);
+                      if (type === 'agent') void installAgent(item.slug);
+                      else void installSkill(item.slug);
+                    }}
+                  >
+                    {zh ? '安装 / 同步到本地' : 'Install / sync locally'}
+                  </button>
+                </div>
+              </section>
             </div>
           )}
         </>
