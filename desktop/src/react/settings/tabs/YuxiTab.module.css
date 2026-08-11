@@ -333,6 +333,13 @@
   margin-top: auto;
 }
 
+.submissionActionLead {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
 .submissionActions .primaryButton {
   margin-left: auto;
   font-size: 11px;
@@ -477,23 +484,29 @@
 
 .detailOverlay {
   position: fixed;
-  z-index: 1000;
+  z-index: 10000;
   display: flex;
   align-items: center;
   justify-content: center;
   inset: 0;
   padding: 24px;
-  background: rgb(0 0 0 / 32%);
+  background: rgb(0 0 0 / 46%);
+  backdrop-filter: blur(2px);
 }
 
 .detailDialog {
-  width: min(520px, calc(100vw - 48px));
+  position: relative;
+  isolation: isolate;
+  display: flex;
+  width: min(540px, calc(100vw - 48px));
   max-height: min(640px, calc(100vh - 48px));
-  overflow: auto;
-  padding: 22px;
+  overflow: hidden;
+  flex-direction: column;
+  box-sizing: border-box;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: var(--bg-secondary);
+  background: var(--bg, #fff);
+  color: var(--text-primary);
   box-shadow: 0 18px 60px rgb(0 0 0 / 22%);
 }
 
@@ -503,6 +516,11 @@
   align-items: center;
   justify-content: space-between;
   gap: 12px;
+}
+
+.detailHeader {
+  padding: 20px 22px 16px;
+  border-bottom: 1px solid var(--border);
 }
 
 .detailHeader h3 {
@@ -537,9 +555,16 @@
 }
 
 .detailDescription {
-  margin: 20px 0;
+  margin: 0 0 18px;
   color: var(--text-secondary);
   line-height: 1.7;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.detailBody {
+  overflow: auto;
+  padding: 20px 22px 6px;
 }
 
 .detailMeta {
@@ -568,6 +593,9 @@
 
 .detailActions {
   justify-content: flex-end;
+  padding: 16px 22px 20px;
+  border-top: 1px solid var(--border);
+  background: var(--bg, #fff);
 }
 
 .meta {

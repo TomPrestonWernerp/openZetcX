@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
+import { createPortal } from 'react-dom';
 import { hanaFetch } from '../api';
 import css from './YuxiTab.module.css';
 
@@ -47,8 +48,9 @@ type CatalogRequest = {
   request: Promise<any>;
 };
 
-type CatalogPreview = {
-  type: 'agent' | 'skill';
+type ResourcePreview = {
+  origin: 'catalog' | 'local';
+  type: LocalResourceType;
   item: any;
 };
 
@@ -104,7 +106,7 @@ export function YuxiTab() {
   const [busy, setBusy] = useState('');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const [catalogPreview, setCatalogPreview] = useState<CatalogPreview | null>(null);
+  const [resourcePreview, setResourcePreview] = useState<ResourcePreview | null>(null);
 
   const loadCatalogs = useCallback(async (currentSession: YuxiSession) => {
     const requests: CatalogRequest[] = [
@@ -527,11 +529,20 @@ export function YuxiTab() {
                       </div>
                       <p>{resource.description || (zh ? '暂无描述' : 'No description')}</p>
                       <div className={css.submissionActions}>
-                        {submission && (
-                          <span className={`${css.submissionStatus} ${css[`status_${submission.status}`] || ''}`}>
-                            {submissionStatusLabel(submission.status, zh)}
-                          </span>
-                        )}
+                        <div className={css.submissionActionLead}>
+                          <button
+                            type="button"
+                            className={css.viewButton}
+                            onClick={() => setResourcePreview({ origin: 'local', type: resource.type, item: resource })}
+                          >
+                            {zh ? '查看' : 'View'}
+                          </button>
+                          {submission && (
+                            <span className={`${css.submissionStatus} ${css[`status_${submission.status}`] || ''}`}>
+                              {submissionStatusLabel(submission.status, zh)}
+                            </span>
+                          )}
+                        </div>
                         <button
                           type="button"
                           className={css.primaryButton}
@@ -597,7 +608,7 @@ export function YuxiTab() {
                     <button
                       type="button"
                       className={css.viewButton}
-                      onClick={() => setCatalogPreview({ type: 'agent', item: agent })}
+                      onClick={() => setResourcePreview({ origin: 'catalog', type: 'agent', item: agent })}
                     >
                       {zh ? '查看' : 'View'}
                     </button>
@@ -626,7 +637,7 @@ export function YuxiTab() {
                     <button
                       type="button"
                       className={css.viewButton}
-                      onClick={() => setCatalogPreview({ type: 'skill', item: skill })}
+                      onClick={() => setResourcePreview({ origin: 'catalog', type: 'skill', item: skill })}
                     >
                       {zh ? '查看' : 'View'}
                     </button>
@@ -695,65 +706,81 @@ export function YuxiTab() {
             </div>
           )}
 
-          {catalogPreview && (
+          {resourcePreview && createPortal(
             <div
               className={css.detailOverlay}
               role="presentation"
               onMouseDown={event => {
-                if (event.target === event.currentTarget) setCatalogPreview(null);
+                if (event.target === event.currentTarget) setResourcePreview(null);
               }}
             >
               <section
                 className={css.detailDialog}
                 role="dialog"
                 aria-modal="true"
-                aria-labelledby="catalog-resource-detail-title"
+                aria-labelledby="resource-detail-title"
               >
                 <div className={css.detailHeader}>
                   <div>
-                    <span className={css.detailType}>{catalogPreview.type === 'agent' ? 'Agent' : 'Skill'}</span>
-                    <h3 id="catalog-resource-detail-title">
-                      {catalogPreview.item.name || catalogPreview.item.slug}
+                    <span className={css.detailType}>
+                      {resourcePreview.origin === 'local' ? (zh ? '本地资源' : 'Local resource') : (zh ? '线上资源' : 'Online resource')}
+                      {' · '}{resourcePreview.type === 'agent' ? 'Agent' : resourcePreview.type === 'skill' ? 'Skill' : 'MCP'}
+                    </span>
+                    <h3 id="resource-detail-title">
+                      {resourcePreview.item.name || resourcePreview.item.slug}
                     </h3>
                   </div>
-                  <button type="button" className={css.closeButton} onClick={() => setCatalogPreview(null)} aria-label={zh ? '关闭资源详情' : 'Close resource details'}>
+                  <button type="button" className={css.closeButton} onClick={() => setResourcePreview(null)} aria-label={zh ? '关闭资源详情' : 'Close resource details'}>
                     ×
                   </button>
                 </div>
-                <p className={css.detailDescription}>
-                  {catalogPreview.item.description || (zh ? '暂无描述' : 'No description')}
-                </p>
-                <dl className={css.detailMeta}>
-                  <div><dt>{zh ? '标识' : 'Identifier'}</dt><dd>{catalogPreview.item.slug}</dd></div>
-                  {catalogPreview.type === 'agent' && catalogPreview.item.backend_id && (
-                    <div><dt>{zh ? '类型' : 'Type'}</dt><dd>{catalogPreview.item.backend_id}</dd></div>
-                  )}
-                  {catalogPreview.type === 'skill' && catalogPreview.item.version && (
-                    <div><dt>{zh ? '版本' : 'Version'}</dt><dd>{catalogPreview.item.version}</dd></div>
-                  )}
-                  <div><dt>{zh ? '访问范围' : 'Access'}</dt><dd>{accessLabel(catalogPreview.item, zh)}</dd></div>
-                </dl>
+                <div className={css.detailBody}>
+                  <p className={css.detailDescription}>
+                    {resourcePreview.item.description || (zh ? '暂无描述' : 'No description')}
+                  </p>
+                  <dl className={css.detailMeta}>
+                    <div>
+                      <dt>{zh ? '标识' : 'Identifier'}</dt>
+                      <dd>{resourcePreview.item.sourceId || resourcePreview.item.slug}</dd>
+                    </div>
+                    {resourcePreview.origin === 'catalog' && resourcePreview.type === 'agent' && resourcePreview.item.backend_id && (
+                      <div><dt>{zh ? '类型' : 'Type'}</dt><dd>{resourcePreview.item.backend_id}</dd></div>
+                    )}
+                    {resourcePreview.origin === 'catalog' && resourcePreview.type === 'skill' && resourcePreview.item.version && (
+                      <div><dt>{zh ? '版本' : 'Version'}</dt><dd>{resourcePreview.item.version}</dd></div>
+                    )}
+                    {resourcePreview.origin === 'local' && resourcePreview.item.transport && (
+                      <div><dt>{zh ? '传输方式' : 'Transport'}</dt><dd>{resourcePreview.item.transport}</dd></div>
+                    )}
+                    {resourcePreview.origin === 'catalog' && (
+                      <div><dt>{zh ? '访问范围' : 'Access'}</dt><dd>{accessLabel(resourcePreview.item, zh)}</dd></div>
+                    )}
+                  </dl>
+                </div>
                 <div className={css.detailActions}>
-                  <button type="button" className={css.secondaryButton} onClick={() => setCatalogPreview(null)}>
+                  <button type="button" className={css.secondaryButton} onClick={() => setResourcePreview(null)}>
                     {zh ? '关闭' : 'Close'}
                   </button>
-                  <button
-                    type="button"
-                    className={css.primaryButton}
-                    disabled={Boolean(busy)}
-                    onClick={() => {
-                      const item = catalogPreview.item;
-                      const type = catalogPreview.type;
-                      setCatalogPreview(null);
-                      if (type === 'agent') void installAgent(item.slug);
-                      else void installSkill(item.slug);
-                    }}
-                  >
-                    {zh ? '安装 / 同步到本地' : 'Install / sync locally'}
-                  </button>
+                  {resourcePreview.origin === 'catalog' && resourcePreview.type !== 'mcp' && (
+                    <button
+                      type="button"
+                      className={css.primaryButton}
+                      disabled={Boolean(busy)}
+                      onClick={() => {
+                        const item = resourcePreview.item;
+                        const type = resourcePreview.type;
+                        setResourcePreview(null);
+                        if (type === 'agent') void installAgent(item.slug);
+                        else void installSkill(item.slug);
+                      }}
+                    >
+                      {zh ? '安装 / 同步到本地' : 'Install / sync locally'}
+                    </button>
+                  )}
                 </div>
               </section>
-            </div>
+            </div>,
+            document.body,
           )}
         </>
       )}

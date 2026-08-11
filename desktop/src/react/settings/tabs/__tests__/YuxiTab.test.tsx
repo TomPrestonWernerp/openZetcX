@@ -131,6 +131,10 @@ describe('YuxiTab', () => {
     expect(screen.getByRole('tab', { name: 'MCP (0)' })).toHaveAttribute('aria-selected', 'false');
     fireEvent.click(screen.getByRole('tab', { name: 'Skill (1)' }));
     expect(screen.getByText('Weekly Report')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'View' }));
+    expect(screen.getByRole('dialog', { name: 'Weekly Report' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Close' }));
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Submit for review' }));
 
     expect(await screen.findByText('Pending review')).toBeInTheDocument();
