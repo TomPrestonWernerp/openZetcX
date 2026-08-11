@@ -519,7 +519,15 @@ export function YuxiTab() {
                     || submission?.status === 'approved';
                   const busyKey = `submit:${resource.type}:${resource.sourceId}`;
                   return (
-                    <article className={css.localResourceCard} key={`${resource.type}:${resource.sourceId}`}>
+                    <article
+                      className={`${css.localResourceCard} ${submission ? css.hasSubmissionStatus : ''}`}
+                      key={`${resource.type}:${resource.sourceId}`}
+                    >
+                      {submission && (
+                        <span className={`${css.submissionStatus} ${css.localResourceStatus} ${css[`status_${submission.status}`] || ''}`}>
+                          {submissionStatusLabel(submission.status, zh)}
+                        </span>
+                      )}
                       <div className={css.localResourceTitle}>
                         <span className={css.resourceIcon}>{resource.type === 'agent' ? 'A' : resource.type === 'skill' ? 'S' : 'M'}</span>
                         <span>
@@ -537,11 +545,6 @@ export function YuxiTab() {
                           >
                             {zh ? '查看' : 'View'}
                           </button>
-                          {submission && (
-                            <span className={`${css.submissionStatus} ${css[`status_${submission.status}`] || ''}`}>
-                              {submissionStatusLabel(submission.status, zh)}
-                            </span>
-                          )}
                         </div>
                         <button
                           type="button"

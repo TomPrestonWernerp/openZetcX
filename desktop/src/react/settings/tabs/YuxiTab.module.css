@@ -273,6 +273,7 @@
 }
 
 .localResourceCard {
+  position: relative;
   display: flex;
   flex-direction: column;
   min-width: 0;
@@ -280,6 +281,10 @@
   border: 1px solid var(--border);
   border-radius: 9px;
   background: var(--bg);
+}
+
+.hasSubmissionStatus .localResourceTitle {
+  padding-right: 68px;
 }
 
 .localResourceTitle {
@@ -341,8 +346,22 @@
 }
 
 .submissionActions .primaryButton {
+  flex: 0 0 auto;
   margin-left: auto;
+  min-height: 32px;
+  padding: 0 10px;
   font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.submissionActions .viewButton {
+  flex: 0 0 auto;
+  min-width: 58px;
+  min-height: 32px;
+  padding: 0 11px;
+  font-size: 11px;
+  line-height: 1;
 }
 
 .submissionStatus {
@@ -352,6 +371,16 @@
   color: var(--accent);
   font-size: 10px;
   white-space: nowrap;
+}
+
+.localResourceStatus {
+  position: absolute;
+  top: 11px;
+  right: 11px;
+  z-index: 1;
+  max-width: 76px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .status_approved {
