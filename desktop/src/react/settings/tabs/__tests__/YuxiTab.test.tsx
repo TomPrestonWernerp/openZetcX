@@ -126,6 +126,8 @@ describe('YuxiTab', () => {
     render(<YuxiTab />);
 
     expect(await screen.findByText('Submit local resources')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Cloud resources' })).toBeInTheDocument();
+    expect(screen.getByRole('tablist', { name: 'Cloud resource type' })).toBeInTheDocument();
     expect(screen.getByRole('tab', { name: 'Agent (0)' })).toHaveAttribute('aria-selected', 'true');
     expect(screen.getByRole('tab', { name: 'Skill (1)' })).toHaveAttribute('aria-selected', 'false');
     expect(screen.getByRole('tab', { name: 'MCP (0)' })).toHaveAttribute('aria-selected', 'false');

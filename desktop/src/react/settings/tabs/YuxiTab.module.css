@@ -203,7 +203,8 @@
   border-bottom: 1px solid var(--border);
 }
 
-.submissionSection {
+.submissionSection,
+.cloudResourceSection {
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -211,6 +212,10 @@
   border: 1px solid var(--border);
   border-radius: 12px;
   background: var(--bg-secondary);
+}
+
+.cloudResourceSection .catalogTabs {
+  padding-bottom: 10px;
 }
 
 .sectionHeading h3 {
@@ -440,6 +445,37 @@
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 12px;
+}
+
+.cloudResourceGrid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.cloudResourceGrid .resourceCard {
+  min-height: 176px;
+  padding: 13px;
+  background: var(--bg);
+}
+
+.cloudResourceGrid .resourceCard h3 {
+  margin: 10px 0 6px;
+  font-size: 14px;
+}
+
+.cloudResourceGrid .resourceCard p {
+  margin-bottom: 9px;
+  font-size: 11px;
+  -webkit-line-clamp: 2;
+}
+
+.cloudResourceGrid .resourceActions .primaryButton,
+.cloudResourceGrid .resourceActions .viewButton {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 11px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 .resourceCard {

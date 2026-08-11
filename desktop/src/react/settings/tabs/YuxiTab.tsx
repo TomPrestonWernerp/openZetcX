@@ -578,7 +578,21 @@ export function YuxiTab() {
             </section>
           )}
 
-          <div className={css.catalogTabs} role="tablist">
+          <section className={css.cloudResourceSection} aria-labelledby="cloud-resource-heading">
+            <div className={css.sectionHeading}>
+              <div>
+                <h3 id="cloud-resource-heading">{zh ? '云端资源' : 'Cloud resources'}</h3>
+                <p>{zh
+                  ? '浏览当前账号可访问的 Agent、Skill、知识库与 MCP，并按需安装或同步到本地。'
+                  : 'Browse accessible Agents, Skills, knowledge bases, and MCP services, then install or sync them locally.'}</p>
+              </div>
+            </div>
+
+          <div
+            className={css.catalogTabs}
+            role="tablist"
+            aria-label={zh ? '云端资源类型' : 'Cloud resource type'}
+          >
             {catalogTabs.map(([id, label, count]) => (
               <button
                 type="button"
@@ -597,7 +611,7 @@ export function YuxiTab() {
           </div>
 
           {activeCatalog === 'agents' && (
-            <div className={css.cardGrid}>
+            <div className={`${css.cardGrid} ${css.cloudResourceGrid}`}>
               {agents.map(agent => (
                 <article className={css.resourceCard} key={agent.slug}>
                   <div className={css.cardHeader}>
@@ -616,7 +630,7 @@ export function YuxiTab() {
                       {zh ? '查看' : 'View'}
                     </button>
                     <button type="button" className={css.primaryButton} onClick={() => void installAgent(agent.slug)} disabled={Boolean(busy)}>
-                      {busy === `agent:${agent.slug}` ? (zh ? '正在同步…' : 'Syncing…') : (zh ? '安装 / 同步到本地' : 'Install / sync locally')}
+                      {busy === `agent:${agent.slug}` ? (zh ? '正在安装…' : 'Installing…') : (zh ? '安装到本地' : 'Install locally')}
                     </button>
                   </div>
                 </article>
@@ -626,7 +640,7 @@ export function YuxiTab() {
           )}
 
           {activeCatalog === 'skills' && (
-            <div className={css.cardGrid}>
+            <div className={`${css.cardGrid} ${css.cloudResourceGrid}`}>
               {skills.map(skill => (
                 <article className={css.resourceCard} key={skill.slug}>
                   <div className={css.cardHeader}>
@@ -645,7 +659,7 @@ export function YuxiTab() {
                       {zh ? '查看' : 'View'}
                     </button>
                     <button type="button" className={css.primaryButton} onClick={() => void installSkill(skill.slug)} disabled={Boolean(busy)}>
-                      {busy === `skill:${skill.slug}` ? (zh ? '正在同步…' : 'Syncing…') : (zh ? '安装 / 同步到本地' : 'Install / sync locally')}
+                      {busy === `skill:${skill.slug}` ? (zh ? '正在安装…' : 'Installing…') : (zh ? '安装到本地' : 'Install locally')}
                     </button>
                   </div>
                 </article>
@@ -692,7 +706,7 @@ export function YuxiTab() {
           )}
 
           {activeCatalog === 'mcp' && (
-            <div className={css.cardGrid}>
+            <div className={`${css.cardGrid} ${css.cloudResourceGrid}`}>
               {mcpServers.map(server => (
                 <article className={css.resourceCard} key={server.slug}>
                   <div className={css.cardHeader}>
@@ -708,6 +722,7 @@ export function YuxiTab() {
               {!mcpServers.length && <div className={css.empty}>{zh ? '当前账号没有可访问的 MCP。' : 'No accessible MCP servers for this account.'}</div>}
             </div>
           )}
+          </section>
 
           {resourcePreview && createPortal(
             <div
@@ -777,7 +792,7 @@ export function YuxiTab() {
                         else void installSkill(item.slug);
                       }}
                     >
-                      {zh ? '安装 / 同步到本地' : 'Install / sync locally'}
+                      {zh ? '安装到本地' : 'Install locally'}
                     </button>
                   )}
                 </div>
