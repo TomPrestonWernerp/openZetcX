@@ -1505,7 +1505,7 @@ export function createSessionsRoute(engine, hub = null) {
         createOptions.workspaceLabel = workspaceSelection.mount.label || null;
       }
       let newSessionPath, newSessionId, newAgentId;
-      if (agentId && agentId !== (body.currentAgentId || engine.currentAgentId)) {
+      if (agentId) {
         ({ sessionPath: newSessionPath, sessionId: newSessionId, agentId: newAgentId } = await engine.createSessionForAgent(
           agentId,
           cwd || undefined,

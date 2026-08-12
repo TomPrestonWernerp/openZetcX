@@ -907,9 +907,10 @@ export async function ensureSession(): Promise<boolean> {
     if (s.pendingNewSessionPermissionMode) {
       body.permissionMode = s.pendingNewSessionPermissionMode;
     }
-    if (s.selectedAgentId && s.selectedAgentId !== s.currentAgentId) {
-      body.agentId = s.selectedAgentId;
-    }
+    // A new session always carries its owner explicitly. Relying on the
+    // process-wide active agent lets rapid multi-agent switches cross wires.
+    const targetAgentId = s.selectedAgentId || s.currentAgentId;
+    if (targetAgentId) body.agentId = targetAgentId;
     body.currentSessionPath = s.currentSessionPath;
 
     const res = await hanaFetch('/api/sessions/new', {

@@ -4,46 +4,27 @@ import { hanaFetch } from '../api';
 import { t } from '../helpers';
 import { switchToAgent } from '../actions';
 import { Overlay } from '../../ui';
+import { openSettingsModal } from '../../stores/settings-modal-actions';
 import styles from '../Settings.module.css';
-import { OPENZETCX_DEFAULT_ROLE_PRESETS } from '../../../../../shared/openzetcx-role-presets.ts';
-import analystAvatar from '../../assets/role-avatars/analyst.png';
-import coordinatorAvatar from '../../assets/role-avatars/coordinator.png';
-import developerAvatar from '../../assets/role-avatars/developer.png';
-import documentSpecialistAvatar from '../../assets/role-avatars/document_specialist.png';
-import generalAvatar from '../../assets/role-avatars/general.png';
-import operationsAvatar from '../../assets/role-avatars/operations.png';
-import projectManagerAvatar from '../../assets/role-avatars/project_manager.png';
-import researcherAvatar from '../../assets/role-avatars/researcher.png';
-import reviewerAvatar from '../../assets/role-avatars/reviewer.png';
-import writerAvatar from '../../assets/role-avatars/writer.png';
+import {
+  OPENZETCX_DEFAULT_ROLE_PRESETS,
+  OPENZETCX_PRIMARY_DEFAULT_ROLE_ID,
+} from '../../../../../shared/openzetcx-role-presets.ts';
 
 const OPENZETCX_YUAN = 'openZetcX';
 const OPENZETCX_AVATAR = 'assets/openZetcX.png';
-const ROLE_AVATARS: Record<string, string> = {
-  general: generalAvatar,
-  developer: developerAvatar,
-  project_manager: projectManagerAvatar,
-  analyst: analystAvatar,
-  researcher: researcherAvatar,
-  writer: writerAvatar,
-  reviewer: reviewerAvatar,
-  document_specialist: documentSpecialistAvatar,
-  operations: operationsAvatar,
-  coordinator: coordinatorAvatar,
-};
-
 const ROLE_PRESETS = OPENZETCX_DEFAULT_ROLE_PRESETS.map((preset) => ({
   id: preset.id,
   name: preset.name,
   desc: preset.shortDescription,
-  avatar: ROLE_AVATARS[preset.id],
+  avatar: OPENZETCX_AVATAR,
 }));
 
 export function AgentCreateOverlay() {
   const showToast = useSettingsStore(s => s.showToast);
   const [visible, setVisible] = useState(false);
   const [name, setName] = useState('');
-  const [rolePreset, setRolePreset] = useState('general');
+  const [rolePreset, setRolePreset] = useState(OPENZETCX_PRIMARY_DEFAULT_ROLE_ID);
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef<HTMLInputElement>(null);
@@ -51,7 +32,7 @@ export function AgentCreateOverlay() {
   useEffect(() => {
     const handler = () => {
       setName('');
-      setRolePreset('general');
+      setRolePreset(OPENZETCX_PRIMARY_DEFAULT_ROLE_ID);
       setError('');
       setVisible(true);
       requestAnimationFrame(() => inputRef.current?.focus());
@@ -64,6 +45,11 @@ export function AgentCreateOverlay() {
     setVisible(false);
     setError('');
   }, []);
+
+  const openWebAgents = useCallback(() => {
+    close();
+    openSettingsModal('yuxi');
+  }, [close]);
 
   const selectedPreset = ROLE_PRESETS.find((preset) => preset.id === rolePreset) || ROLE_PRESETS[0];
 
@@ -145,45 +131,33 @@ export function AgentCreateOverlay() {
       </div>
       {error && <div className={styles['settings-inline-error']} role="alert">{error}</div>}
       <div className={styles['settings-form-field']}>
+        <div className={styles['agent-create-source-row']}>
+          <span>创建来源</span>
+          <button type="button" onClick={openWebAgents} disabled={creating}>从 Web 获取 Agent</button>
+        </div>
         <div className={styles['agent-create-role-grid']} aria-label="role preset">
           {ROLE_PRESETS.map((preset) => (
             <button
               key={preset.id}
               type="button"
-              className={`${styles['agent-create-role-card']} ${rolePreset === preset.id ? styles['agent-create-role-card-selected'] : ''}`}
+              className={`yuan-chip ${rolePreset === preset.id ? 'selected' : ''} ${styles['agent-create-role-card']}`}
               disabled={creating}
               aria-pressed={rolePreset === preset.id}
               aria-label={`${preset.name}：${preset.desc}`}
               onClick={() => selectRolePreset(preset)}
             >
-              <span className={styles['agent-create-role-avatar']}>
-                <img
-                  src={preset.avatar}
-                  alt=""
-                  draggable={false}
-                />
-              </span>
-              <span className={styles['agent-create-role-copy']}>
-                <strong>{preset.name}</strong>
-                <small>{preset.desc}</small>
+              <img
+                className="yuan-chip-avatar"
+                src={preset.avatar}
+                alt=""
+                draggable={false}
+              />
+              <span className="yuan-chip-info">
+                <span className="yuan-chip-name">{preset.name}</span>
+                <span className="yuan-chip-desc">{preset.desc}</span>
               </span>
             </button>
           ))}
-        </div>
-      </div>
-      <div className={styles['settings-form-field']}>
-        <div className={styles['agent-create-role-preview']} aria-live="polite">
-          <span className={styles['agent-create-role-avatar']}>
-            <img
-              src={OPENZETCX_AVATAR}
-              alt=""
-              draggable={false}
-            />
-          </span>
-          <div>
-            <strong>openZetcX</strong>
-            <span>AI Agent 助手</span>
-          </div>
         </div>
       </div>
       <div className={styles['agent-create-actions']}>

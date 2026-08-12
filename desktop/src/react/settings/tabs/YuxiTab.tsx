@@ -309,6 +309,11 @@ export function YuxiTab() {
       });
       const data = await response.json();
       const failed = data.skillErrors?.length || 0;
+      setAgents(current => current.map(agent => (
+        agent.slug === slug
+          ? { ...agent, installed: true, local_agent_id: data.agent?.id || null }
+          : agent
+      )));
       setNotice(zh
         ? `${data.created ? '已安装' : '已同步'} Agent“${data.agent.name}”${failed ? `，${failed} 个 Skill 未能同步` : ''}。`
         : `${data.created ? 'Installed' : 'Synced'} agent “${data.agent.name}”${failed ? `; ${failed} skill(s) could not be synced` : ''}.`);
@@ -629,8 +634,17 @@ export function YuxiTab() {
                     >
                       {zh ? '查看' : 'View'}
                     </button>
-                    <button type="button" className={css.primaryButton} onClick={() => void installAgent(agent.slug)} disabled={Boolean(busy)}>
-                      {busy === `agent:${agent.slug}` ? (zh ? '正在安装…' : 'Installing…') : (zh ? '安装到本地' : 'Install locally')}
+                    <button
+                      type="button"
+                      className={css.primaryButton}
+                      onClick={() => void installAgent(agent.slug)}
+                      disabled={Boolean(busy) || agent.installed === true}
+                    >
+                      {busy === `agent:${agent.slug}`
+                        ? (zh ? '正在安装…' : 'Installing…')
+                        : agent.installed === true
+                          ? (zh ? '已安装' : 'Installed')
+                          : (zh ? '安装到本地' : 'Install locally')}
                     </button>
                   </div>
                 </article>

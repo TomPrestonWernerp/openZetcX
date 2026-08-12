@@ -11,6 +11,7 @@ const mocks = vi.hoisted(() => ({
   hanaFetch: vi.fn(),
   showToast: vi.fn(),
   switchToAgent: vi.fn(),
+  openSettingsModal: vi.fn(),
 }));
 
 vi.mock('../../settings/store', () => ({
@@ -24,6 +25,10 @@ vi.mock('../../settings/api', () => ({
 
 vi.mock('../../settings/actions', () => ({
   switchToAgent: (...args: unknown[]) => mocks.switchToAgent(...args),
+}));
+
+vi.mock('../../stores/settings-modal-actions', () => ({
+  openSettingsModal: (...args: unknown[]) => mocks.openSettingsModal(...args),
 }));
 
 vi.mock('../../settings/helpers', () => ({
@@ -52,6 +57,7 @@ describe('AgentCreateOverlay role presets', () => {
     mocks.hanaFetch.mockReset();
     mocks.showToast.mockReset();
     mocks.switchToAgent.mockReset();
+    mocks.openSettingsModal.mockReset();
     mocks.hanaFetch.mockResolvedValue({
       json: async () => ({ id: 'custom-writer', name: '自定义角色' }),
     });
@@ -67,7 +73,7 @@ describe('AgentCreateOverlay role presets', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows ten avatar presets and creates from the selected profession', async () => {
+  it('shows only the openZetc foundation and creates an isolated agent from it', async () => {
     const { AgentCreateOverlay } = await import('../../settings/overlays/AgentCreateOverlay');
     render(<AgentCreateOverlay />);
 
@@ -76,30 +82,22 @@ describe('AgentCreateOverlay role presets', () => {
     });
 
     const presetGrid = screen.getByLabelText('role preset');
-    expect(within(presetGrid).getAllByRole('button')).toHaveLength(10);
-    expect(presetGrid.querySelectorAll('img')).toHaveLength(10);
-
-    fireEvent.click(screen.getByRole('button', { name: /程序员/ }));
+    expect(within(presetGrid).getAllByRole('button')).toHaveLength(1);
+    expect(presetGrid.querySelectorAll('img')).toHaveLength(1);
+    const openZetcCard = screen.getByRole('button', { name: /openZetc：均衡的助手/ });
+    expect(openZetcCard).toBePressed();
+    expect(openZetcCard).toHaveClass('yuan-chip', 'selected');
     const nameInput = screen.getByPlaceholderText('起个名字');
-    expect(nameInput).toHaveValue('程序员');
-    expect(screen.getAllByText('程序员')).toHaveLength(1);
-    expect(
-      screen.getByRole('button', { name: /程序员/ }).querySelector('img'),
-    ).toHaveAttribute('src', expect.stringContaining('/role-avatars/developer.png'));
-    expect(screen.getByText('openZetcX')).toBeInTheDocument();
-    expect(screen.getByText('AI Agent 助手')).toBeInTheDocument();
+    expect(nameInput).toHaveValue('');
+    expect(screen.getByText('均衡的助手')).toBeInTheDocument();
 
-    const images = screen.getByRole('dialog').querySelectorAll('img');
-    expect(images).toHaveLength(11);
-    expect(images[10]).toHaveAttribute('src', 'assets/openZetcX.png');
+    fireEvent.click(screen.getByRole('button', { name: '从 Web 获取 Agent' }));
+    expect(mocks.openSettingsModal).toHaveBeenCalledWith('yuxi');
 
-    fireEvent.click(screen.getByRole('button', { name: /分析师/ }));
-    expect(nameInput).toHaveValue('分析师');
+    act(() => window.dispatchEvent(new Event('hana-show-agent-create')));
 
-    fireEvent.change(nameInput, { target: { value: '自定义角色' } });
-    fireEvent.click(screen.getByRole('button', { name: /写作助手/ }));
-    expect(nameInput).toHaveValue('自定义角色');
-
+    const reopenedNameInput = screen.getByPlaceholderText('起个名字');
+    fireEvent.change(reopenedNameInput, { target: { value: '自定义角色' } });
     fireEvent.click(screen.getByRole('button', { name: '创建' }));
 
     expect(mocks.hanaFetch).toHaveBeenCalledWith('/api/agents', expect.objectContaining({
@@ -107,7 +105,7 @@ describe('AgentCreateOverlay role presets', () => {
       body: JSON.stringify({
         name: '自定义角色',
         yuan: 'openZetcX',
-        rolePreset: 'writer',
+        rolePreset: 'general',
       }),
     }));
     await waitFor(() => {

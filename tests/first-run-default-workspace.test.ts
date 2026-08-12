@@ -77,18 +77,17 @@ describe("first run default workspace", () => {
     expect(prefs.primaryAgent).toBe("general");
   });
 
-  it("tops up and refreshes bundled defaults on existing installs", async () => {
-    const developer = OPENZETCX_DEFAULT_ROLE_PRESETS.find((role) => role.id === "developer");
-    const developerDir = path.join(openZetcXHome, "agents", "developer");
-    fs.mkdirSync(path.join(developerDir, "avatars"), { recursive: true });
+  it("keeps user edits on the existing default role during startup", async () => {
+    const generalDir = path.join(openZetcXHome, "agents", "general");
+    fs.mkdirSync(path.join(generalDir, "avatars"), { recursive: true });
     fs.writeFileSync(
-      path.join(developerDir, "config.yaml"),
-      "agent:\n  name: Old Developer\n  yuan: hanako\n",
+      path.join(generalDir, "config.yaml"),
+      "agent:\n  name: 我的助手\n  yuan: openZetcX\n  rolePreset: general\n",
       "utf-8",
     );
-    fs.writeFileSync(path.join(developerDir, "identity.md"), "# old\n", "utf-8");
-    fs.writeFileSync(path.join(developerDir, "ishiki.md"), "# old\n", "utf-8");
-    fs.writeFileSync(path.join(developerDir, "avatars", "agent.png"), "old-avatar", "utf-8");
+    fs.writeFileSync(path.join(generalDir, "identity.md"), "# 用户身份修改\n", "utf-8");
+    fs.writeFileSync(path.join(generalDir, "ishiki.md"), "# 用户意识修改\n", "utf-8");
+    fs.writeFileSync(path.join(generalDir, "avatars", "agent.png"), "user-avatar", "utf-8");
     const { ensureFirstRun } = await import("../core/first-run.ts");
 
     const report = ensureFirstRun(openZetcXHome, productDir);
@@ -97,13 +96,13 @@ describe("first run default workspace", () => {
     for (const role of OPENZETCX_DEFAULT_ROLE_PRESETS) {
       expect(fs.existsSync(path.join(openZetcXHome, "agents", role.id, "config.yaml"))).toBe(true);
     }
-    const cfg = YAML.load(fs.readFileSync(path.join(developerDir, "config.yaml"), "utf-8"));
-    expect(cfg.agent.name).toBe(developer?.name);
+    const cfg = YAML.load(fs.readFileSync(path.join(generalDir, "config.yaml"), "utf-8"));
+    expect(cfg.agent.name).toBe("我的助手");
     expect(cfg.agent.yuan).toBe("openZetcX");
-    expect(cfg.agent.rolePreset).toBe("developer");
-    expect(fs.readFileSync(path.join(developerDir, "identity.md"), "utf-8")).toContain(`# ${developer?.name}`);
-    expect(fs.readFileSync(path.join(developerDir, "ishiki.md"), "utf-8")).not.toContain("# old");
-    expect(fs.readFileSync(path.join(developerDir, "avatars", "agent.png"), "utf-8")).toBe("avatar:developer");
+    expect(cfg.agent.rolePreset).toBe("general");
+    expect(fs.readFileSync(path.join(generalDir, "identity.md"), "utf-8")).toBe("# 用户身份修改\n");
+    expect(fs.readFileSync(path.join(generalDir, "ishiki.md"), "utf-8")).toBe("# 用户意识修改\n");
+    expect(fs.readFileSync(path.join(generalDir, "avatars", "agent.png"), "utf-8")).toBe("user-avatar");
   });
 
   it("tops up all bundled defaults on legacy installs that only have old agents", async () => {
@@ -144,9 +143,8 @@ describe("first run default workspace", () => {
 
     const cfgPath = path.join(openZetcXHome, "agents", "general", "config.yaml");
     const cfg = YAML.load(fs.readFileSync(cfgPath, "utf-8"));
-    expect(cfg.agent.name).toBe("通用助手");
+    expect(cfg.agent.name).toBe("openZetc");
     expect(fs.statSync(path.join(openZetcXHome, "agents", "general", "sessions")).isDirectory()).toBe(true);
-    expect(fs.existsSync(path.join(openZetcXHome, "agents", "developer", "config.yaml"))).toBe(true);
   });
 
   it("keeps startup alive and reports non-default agent directories without config.yaml", async () => {
@@ -187,7 +185,7 @@ describe("first run default workspace", () => {
     const report = ensureFirstRun(openZetcXHome, productDir);
 
     const cfg = YAML.load(fs.readFileSync(path.join(generalDir, "config.yaml"), "utf-8"));
-    expect(cfg.agent.name).toBe("通用助手");
+    expect(cfg.agent.name).toBe("openZetc");
     expect(report.repairedDefaultAgent).toBe(true);
     const backups = fs.readdirSync(generalDir).filter((name) => name.startsWith("config.yaml.broken-"));
     expect(backups).toHaveLength(1);

@@ -24,6 +24,25 @@ function readableDescription(value: string) {
   return value.replace(/<!--[\s\S]*?-->/g, "").trim();
 }
 
+function installedYuxiAgents(engine: any) {
+  const installed = new Map<string, string>();
+  for (const agent of engine.listAgents?.() || []) {
+    if (!agent?.id) continue;
+    try {
+      const source = JSON.parse(readText(
+        path.join(engine.agentsDir, agent.id, ".yuxi-source.json"),
+        20_000,
+      ));
+      if (source?.provider !== "yuxi" || typeof source.yuxiAgentSlug !== "string") continue;
+      const slug = source.yuxiAgentSlug.trim();
+      if (slug && !installed.has(slug)) installed.set(slug, agent.id);
+    } catch {
+      // A missing or malformed source marker means this is not a managed Yuxi install.
+    }
+  }
+  return installed;
+}
+
 function localMcpConnectors(engine: any) {
   const entry = engine.pluginManager?.getPlugin?.("mcp");
   const runtime = entry?.instance?.ctx?._mcpRuntime;
@@ -181,7 +200,19 @@ export function createYuxiRoute(engine: any) {
     try {
       client.requirePermission("agent.view");
       const result = await client.listAgents();
-      return c.json({ agents: Array.isArray(result?.agents) ? result.agents : [] });
+      const installed = installedYuxiAgents(engine);
+      const agents = Array.isArray(result?.agents) ? result.agents : [];
+      return c.json({
+        agents: agents.map((agent: any) => {
+          const slug = typeof agent?.slug === "string" ? agent.slug : "";
+          const localAgentId = installed.get(slug) || null;
+          return {
+            ...agent,
+            installed: Boolean(localAgentId),
+            local_agent_id: localAgentId,
+          };
+        }),
+      });
     } catch (error) {
       return errorResponse(c, error);
     }

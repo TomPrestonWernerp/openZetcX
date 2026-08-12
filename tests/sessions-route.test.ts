@@ -345,6 +345,48 @@ describe("sessions route", () => {
     );
   });
 
+  it("always creates an explicitly targeted session inside that agent", async () => {
+    const { createSessionsRoute } = await import("../server/routes/sessions.ts");
+    const app = new Hono();
+    const engine = {
+      currentAgentId: "agent-a",
+      config: {},
+      cwd: "/tmp/workspace",
+      memoryEnabled: true,
+      planMode: false,
+      memoryModelUnavailableReason: null,
+      createSession: vi.fn(),
+      createSessionForAgent: vi.fn(async () => ({
+        sessionPath: "/tmp/agents/agent-b/sessions/new.jsonl",
+        sessionId: "sess_agent_b",
+        agentId: "agent-b",
+      })),
+      persistSessionMeta: vi.fn(),
+      updateConfig: vi.fn(),
+      getAgent: vi.fn((id) => ({ agentName: id === "agent-b" ? "Agent B" : "Agent A" })),
+      getSessionWorkspaceFolders: vi.fn(() => []),
+      getSessionThinkingLevel: vi.fn(() => "medium"),
+    };
+
+    app.route("/api", createSessionsRoute(engine));
+    const res = await app.request("/api/sessions/new", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ agentId: "agent-b", cwd: "/tmp/workspace" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(engine.createSessionForAgent).toHaveBeenCalledWith(
+      "agent-b",
+      "/tmp/workspace",
+      true,
+      undefined,
+      { workspaceFolders: [], visibleInSessionList: true },
+    );
+    expect(engine.createSession).not.toHaveBeenCalled();
+    expect(await res.json()).toMatchObject({ agentId: "agent-b", sessionId: "sess_agent_b" });
+  });
+
   it("returns a structured no-model error instead of a generic 500 when new session creation cannot select a model (#1643)", async () => {
     const { createSessionsRoute } = await import("../server/routes/sessions.ts");
     const app = new Hono();

@@ -77,6 +77,57 @@ describe('YuxiTab', () => {
     await waitFor(() => expect(hanaFetch).toHaveBeenCalledWith('/api/yuxi/mcp-servers'));
   });
 
+  it('shows local agent install state and updates it immediately after installation', async () => {
+    window.i18n = {
+      locale: 'en-US',
+      load: vi.fn(async () => {}),
+      t: (key: string) => key,
+    } as unknown as typeof window.i18n;
+    hanaFetch.mockImplementation(async (path: string, init?: RequestInit) => {
+      if (path.startsWith('/api/yuxi/session')) {
+        return jsonResponse({
+          authenticated: true,
+          baseUrl: 'http://127.0.0.1:15050',
+          requireLogin: true,
+          user: { username: 'alice' },
+          access: {
+            roles: [],
+            permissions: { 'agent.view': 'global' },
+          },
+        });
+      }
+      if (path === '/api/yuxi/agents') {
+        return jsonResponse({
+          agents: [
+            { slug: 'deep-research', name: 'Deep Research', installed: true, local_agent_id: 'yuxi-deep-research' },
+            { slug: 'writer', name: 'Writer', installed: false, local_agent_id: null },
+          ],
+        });
+      }
+      if (path === '/api/yuxi/agents/writer/install' && init?.method === 'POST') {
+        return jsonResponse({
+          ok: true,
+          created: true,
+          agent: { id: 'yuxi-writer', name: 'Writer' },
+          installedSkills: [],
+          skillErrors: [],
+        });
+      }
+      throw new Error(`Unexpected request: ${path}`);
+    });
+
+    render(<YuxiTab />);
+
+    const installedButton = await screen.findByRole('button', { name: 'Installed' });
+    expect(installedButton).toBeDisabled();
+
+    const installButton = screen.getByRole('button', { name: 'Install locally' });
+    fireEvent.click(installButton);
+
+    await waitFor(() => expect(screen.getAllByRole('button', { name: 'Installed' })).toHaveLength(2));
+    expect(screen.getAllByRole('button', { name: 'Installed' })[1]).toBeDisabled();
+  });
+
   it('submits a local resource and renders its pending review state', async () => {
     window.i18n = {
       locale: 'en-US',

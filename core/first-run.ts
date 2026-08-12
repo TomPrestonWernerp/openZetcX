@@ -253,25 +253,29 @@ function syncDefaultRoleMetadata(agentsDir, productDir, validAgentIds: Set<strin
     const agentDir = path.join(agentsDir, rolePreset.id);
     const cfgPath = path.join(agentDir, "config.yaml");
     const raw = fs.existsSync(cfgPath) ? YAML.load(fs.readFileSync(cfgPath, "utf-8")) || {} : {};
-    raw.agent = {
+    const nextAgent = {
       ...(raw.agent || {}),
-      name: rolePreset.name,
-      yuan: DEFAULT_YUAN_ID,
-      rolePreset: rolePreset.id,
+      name: raw.agent?.name || rolePreset.name,
+      yuan: raw.agent?.yuan || DEFAULT_YUAN_ID,
+      rolePreset: raw.agent?.rolePreset || rolePreset.id,
     };
-    fs.writeFileSync(cfgPath, YAML.dump(raw, { indent: 2, lineWidth: -1, sortKeys: false, quotingType: '"' }), "utf-8");
-    fs.writeFileSync(
-      path.join(agentDir, "identity.md"),
-      renderDefaultRoleTemplate(rolePreset.identity, raw, rolePreset.id),
-      "utf-8",
-    );
-    fs.writeFileSync(
-      path.join(agentDir, "ishiki.md"),
-      renderDefaultRoleTemplate(rolePreset.ishiki, raw, rolePreset.id),
-      "utf-8",
-    );
+    if (JSON.stringify(nextAgent) !== JSON.stringify(raw.agent || {})) {
+      raw.agent = nextAgent;
+      fs.writeFileSync(cfgPath, YAML.dump(raw, { indent: 2, lineWidth: -1, sortKeys: false, quotingType: '"' }), "utf-8");
+    }
+    const identityPath = path.join(agentDir, "identity.md");
+    if (!fs.existsSync(identityPath)) {
+      fs.writeFileSync(identityPath, renderDefaultRoleTemplate(rolePreset.identity, raw, rolePreset.id), "utf-8");
+    }
+    const ishikiPath = path.join(agentDir, "ishiki.md");
+    if (!fs.existsSync(ishikiPath)) {
+      fs.writeFileSync(ishikiPath, renderDefaultRoleTemplate(rolePreset.ishiki, raw, rolePreset.id), "utf-8");
+    }
     fs.mkdirSync(path.join(agentDir, "avatars"), { recursive: true });
-    copyDefaultRoleAvatar(productDir, rolePreset, agentDir);
+    const avatarDir = path.join(agentDir, "avatars");
+    if (!fs.readdirSync(avatarDir).some((name) => name.startsWith("agent."))) {
+      copyDefaultRoleAvatar(productDir, rolePreset, agentDir);
+    }
   }
 }
 

@@ -50,7 +50,10 @@ import {
   hasInlineProviderCredentialPatch,
 } from "./provider-credentials.ts";
 import { mergeWorkspaceHistory } from "../../shared/workspace-history.ts";
-import { getOpenZetcXRolePreset } from "../../shared/openzetcx-role-presets.ts";
+import {
+  getOpenZetcXRolePreset,
+  OPENZETCX_PRIMARY_DEFAULT_ROLE_ID,
+} from "../../shared/openzetcx-role-presets.ts";
 import {
   collectSecretPatchPaths,
   maskObjectSecrets,
@@ -263,8 +266,12 @@ export function createAgentsRoute(engine) {
       if (!name?.trim()) {
         return c.json({ error: "name is required" }, 400);
       }
-      const avatarPath = resolveRolePresetAvatarPath(engine, rolePreset);
-      const result = await engine.createAgent({ name, id, yuan, rolePreset, avatarPath });
+      const selectedRolePreset = rolePreset || OPENZETCX_PRIMARY_DEFAULT_ROLE_ID;
+      if (!getOpenZetcXRolePreset(selectedRolePreset)) {
+        return c.json({ error: "unsupported role preset" }, 400);
+      }
+      const avatarPath = resolveRolePresetAvatarPath(engine, selectedRolePreset);
+      const result = await engine.createAgent({ name, id, yuan, rolePreset: selectedRolePreset, avatarPath });
       emitAppEvent(engine, "agent-created", { agentId: result.id, name: result.name });
       return c.json({ ok: true, ...result });
     } catch (err) {

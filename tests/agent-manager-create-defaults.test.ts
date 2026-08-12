@@ -221,11 +221,11 @@ describe("AgentManager.createAgent default skills.enabled", () => {
     expect(identity).not.toContain("{{userName}}");
   });
 
-  it("applies openZetcX role presets without changing the Ta template", async () => {
+  it("applies the openZetc foundation preset without changing the Ta template", async () => {
     const { id: newId } = await mgr.createAgent({
       name: "DevAgent",
       yuan: "openZetcX",
-      rolePreset: "developer",
+      rolePreset: "general",
     } as any);
 
     const cfgPath = path.join(agentsDir, newId, "config.yaml");
@@ -234,11 +234,11 @@ describe("AgentManager.createAgent default skills.enabled", () => {
     const ishiki = fs.readFileSync(path.join(agentsDir, newId, "ishiki.md"), "utf-8");
 
     expect(cfg.agent.yuan).toBe("openZetcX");
-    expect(cfg.agent.rolePreset).toBe("developer");
+    expect(cfg.agent.rolePreset).toBe("general");
     expect(identity).toContain("# DevAgent");
-    expect(identity).toContain("openZetcX");
-    expect(identity).toContain("程序员助手");
-    expect(ishiki).toContain("现有架构");
+    expect(identity).toContain("openZetc");
+    expect(identity).toContain("均衡助手");
+    expect(ishiki).toContain("不同 Agent");
   });
 
   it("defaults patrol to disabled with a 31 minute interval for newly created agents", async () => {
