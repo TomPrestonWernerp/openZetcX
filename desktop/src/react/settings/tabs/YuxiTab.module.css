@@ -214,6 +214,14 @@
   background: var(--bg-secondary);
 }
 
+.cloudResourceSection {
+  order: 1;
+}
+
+.submissionSection {
+  order: 2;
+}
+
 .cloudResourceSection .catalogTabs {
   padding-bottom: 10px;
 }
