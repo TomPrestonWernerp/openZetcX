@@ -1,11 +1,9 @@
 import crypto from "crypto";
 import fs from "fs";
 import path from "path";
+import YAML from "js-yaml";
 import { atomicWriteSync } from "../../shared/safe-fs.ts";
-import {
-  installSkillPackageFromDirectory,
-  rewriteSkillInstallMetadata,
-} from "../skills/skill-package-installer.ts";
+import { installSkillPackageFromDirectory, rewriteSkillInstallMetadata } from "../skills/skill-package-installer.ts";
 import { YuxiClient, YuxiClientError } from "./client.ts";
 
 const MAX_SKILL_FILES = 500;
@@ -32,8 +30,10 @@ function safeSlug(value: unknown, label: string): string {
 }
 
 function safeRelativePath(value: unknown): string {
-  const normalized = String(value || "").replace(/\\/g, "/").replace(/^\/+/, "");
-  if (!normalized || normalized.split("/").some(part => !part || part === "." || part === "..")) {
+  const normalized = String(value || "")
+    .replace(/\\/g, "/")
+    .replace(/^\/+/, "");
+  if (!normalized || normalized.split("/").some((part) => !part || part === "." || part === "..")) {
     throw new YuxiClientError("线上 Skill 包含非法路径", {
       status: 400,
       code: "YUXI_SKILL_PATH_INVALID",
@@ -121,13 +121,17 @@ async function materializeSkill(client: YuxiClient, openZetcXHome: string, slug:
 
     fs.writeFileSync(
       path.join(skillDir, SKILL_SOURCE_FILE),
-      `${JSON.stringify({
-        schemaVersion: 1,
-        ...sourceIdentity(client),
-        yuxiSkillSlug: slug,
-        syncedAt: new Date().toISOString(),
-        skippedFiles,
-      }, null, 2)}\n`,
+      `${JSON.stringify(
+        {
+          schemaVersion: 1,
+          ...sourceIdentity(client),
+          yuxiSkillSlug: slug,
+          syncedAt: new Date().toISOString(),
+          skippedFiles,
+        },
+        null,
+        2,
+      )}\n`,
       "utf-8",
     );
     return { stagingDir, skillDir, skippedFiles };
@@ -202,6 +206,19 @@ function readAgentSource(sourcePath: string) {
   }
 }
 
+function sha256Text(value: string): string {
+  return crypto.createHash("sha256").update(value, "utf-8").digest("hex");
+}
+
+function readWholeText(filePath: string): string | null {
+  try {
+    return fs.readFileSync(filePath, "utf-8");
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") return null;
+    throw error;
+  }
+}
+
 export async function syncYuxiAgent({
   client,
   engine,
@@ -241,7 +258,11 @@ export async function syncYuxiAgent({
   const skillErrors: Array<{ slug: string; error: string }> = [];
   for (const requestedSkill of requestedSkills) {
     try {
-      const result = await syncYuxiSkill({ client, engine, slug: requestedSkill });
+      const result = await syncYuxiSkill({
+        client,
+        engine,
+        slug: requestedSkill,
+      });
       installedSkills.push(result.name);
     } catch (error) {
       skillErrors.push({
@@ -254,12 +275,47 @@ export async function syncYuxiAgent({
   const name = String(remoteAgent.name || slug).trim() || slug;
   const identity = agentIdentity(remoteAgent);
   let created = false;
+  let identityUpdated = false;
+  let nameUpdated = false;
+  let preservedCustomIdentity = false;
+  let preservedCustomName = false;
   if (fs.existsSync(localAgentDir)) {
-    fs.writeFileSync(path.join(localAgentDir, "identity.md"), identity, "utf-8");
-    await engine.updateConfig({
-      agent: { name },
-      skills: { enabled: installedSkills },
-    }, { agentId: localAgentId, refreshDescription: true });
+    const existingSource = readAgentSource(sourcePath);
+    const managed = existingSource?.managed && typeof existingSource.managed === "object" ? existingSource.managed : {};
+    const identityPath = path.join(localAgentDir, "identity.md");
+    const currentIdentity = readWholeText(identityPath);
+    const identityStillManaged =
+      currentIdentity === null ||
+      (typeof managed.identitySha256 === "string" && sha256Text(currentIdentity) === managed.identitySha256);
+    if (identityStillManaged) {
+      fs.writeFileSync(identityPath, identity, "utf-8");
+      identityUpdated = true;
+    } else {
+      preservedCustomIdentity = true;
+    }
+
+    const configPath = path.join(localAgentDir, "config.yaml");
+    const currentConfig = (YAML.load(fs.readFileSync(configPath, "utf-8")) || {}) as any;
+    const currentName = typeof currentConfig?.agent?.name === "string" ? currentConfig.agent.name : "";
+    const nameStillManaged = !currentName || (typeof managed.name === "string" && currentName === managed.name);
+    nameUpdated = nameStillManaged;
+    preservedCustomName = !nameStillManaged;
+
+    // 线上 Agent 刷新只能补充依赖 Skill，不能移除用户后来启用的 Skill。
+    const currentSkills = Array.isArray(currentConfig?.skills?.enabled)
+      ? currentConfig.skills.enabled.filter((item: unknown) => typeof item === "string")
+      : [];
+    const enabledSkills = [...new Set([...currentSkills, ...installedSkills])];
+    await engine.updateConfig(
+      {
+        ...(nameStillManaged ? { agent: { name } } : {}),
+        skills: { enabled: enabledSkills },
+      },
+      {
+        agentId: localAgentId,
+        refreshDescription: identityUpdated || nameUpdated,
+      },
+    );
     engine.invalidateAgentListCache?.();
   } else {
     await engine.createAgent({
@@ -270,17 +326,25 @@ export async function syncYuxiAgent({
       initialFiles: { identity },
     });
     created = true;
+    identityUpdated = true;
+    nameUpdated = true;
   }
 
   const source = {
-    schemaVersion: 1,
+    schemaVersion: 2,
     ...sourceIdentity(client),
     yuxiAgentSlug: slug,
     yuxiBackendId: remoteAgent.backend_id || null,
     skillSlugs: requestedSkills,
+    managed: {
+      identitySha256: sha256Text(identity),
+      name,
+    },
     syncedAt: new Date().toISOString(),
   };
-  atomicWriteSync(sourcePath, `${JSON.stringify(source, null, 2)}\n`, { mode: 0o600 });
+  atomicWriteSync(sourcePath, `${JSON.stringify(source, null, 2)}\n`, {
+    mode: 0o600,
+  });
 
   return {
     created,
@@ -291,5 +355,9 @@ export async function syncYuxiAgent({
     },
     installedSkills,
     skillErrors,
+    preservedCustomizations: {
+      identity: preservedCustomIdentity,
+      name: preservedCustomName,
+    },
   };
 }

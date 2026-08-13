@@ -26,9 +26,7 @@ vi.mock("../core/agent.js", () => ({
     };
     this.updateConfig = (partial) => {
       const cfgPath = path.join(this.agentDir, "config.yaml");
-      const existing = fs.existsSync(cfgPath)
-        ? YAML.load(fs.readFileSync(cfgPath, "utf-8")) || {}
-        : {};
+      const existing = fs.existsSync(cfgPath) ? YAML.load(fs.readFileSync(cfgPath, "utf-8")) || {} : {};
       const merged = deepMerge(existing, partial);
       fs.writeFileSync(cfgPath, YAML.dump(merged));
       this.config = merged;
@@ -51,7 +49,7 @@ vi.mock("../lib/desk/activity-store.js", () => ({
 }));
 
 vi.mock("../lib/memory/config-loader.js", async (importOriginal) => {
-  const actual = await importOriginal() as any;
+  const actual = (await importOriginal()) as any;
   return { ...actual, clearConfigCache: vi.fn() };
 });
 
@@ -137,9 +135,7 @@ describe("AgentManager.createAgent default skills.enabled", () => {
     skillsMock = {
       _allSkills: [],
       computeDefaultEnabledForNewAgent() {
-        return this._allSkills
-          .filter((s) => s.source !== "external" && s.defaultEnabled !== false)
-          .map((s) => s.name);
+        return this._allSkills.filter((s) => s.source !== "external" && s.defaultEnabled !== false).map((s) => s.name);
       },
       syncAgentSkills: vi.fn(),
     };
@@ -148,7 +144,9 @@ describe("AgentManager.createAgent default skills.enabled", () => {
   });
 
   afterEach(() => {
-    try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    try {
+      fs.rmSync(tempDir, { recursive: true, force: true });
+    } catch {}
   });
 
   it("writes snapshot of installed user skills to new agent config.yaml", async () => {
@@ -159,7 +157,10 @@ describe("AgentManager.createAgent default skills.enabled", () => {
       { name: "ext-one", source: "external" },
     ];
 
-    const { id: newId } = await mgr.createAgent({ name: "TestAgent", yuan: "hanako" });
+    const { id: newId } = await mgr.createAgent({
+      name: "TestAgent",
+      yuan: "hanako",
+    });
 
     const cfgPath = path.join(agentsDir, newId, "config.yaml");
     const cfg = YAML.load(fs.readFileSync(cfgPath, "utf-8"));
@@ -169,7 +170,10 @@ describe("AgentManager.createAgent default skills.enabled", () => {
   it("falls back to seeded template default when snapshot is empty", async () => {
     skillsMock._allSkills = [];
 
-    const { id: newId } = await mgr.createAgent({ name: "EmptyAgent", yuan: "hanako" });
+    const { id: newId } = await mgr.createAgent({
+      name: "EmptyAgent",
+      yuan: "hanako",
+    });
 
     const cfgPath = path.join(agentsDir, newId, "config.yaml");
     const cfg = YAML.load(fs.readFileSync(cfgPath, "utf-8"));
@@ -181,7 +185,10 @@ describe("AgentManager.createAgent default skills.enabled", () => {
   it("does not touch existing agents' config.yaml (regression for #419)", async () => {
     skillsMock._allSkills = [{ name: "pdf", source: "user" }];
 
-    const { id: firstId } = await mgr.createAgent({ name: "First", yuan: "hanako" });
+    const { id: firstId } = await mgr.createAgent({
+      name: "First",
+      yuan: "hanako",
+    });
     const firstCfgPath = path.join(agentsDir, firstId, "config.yaml");
     const mtimeBefore = fs.statSync(firstCfgPath).mtimeMs;
 
@@ -197,22 +204,33 @@ describe("AgentManager.createAgent default skills.enabled", () => {
   it("persists models.chat as composite ref for newly created agents", async () => {
     skillsMock._allSkills = [];
 
-    const { id: newId } = await mgr.createAgent({ name: "CompositeAgent", yuan: "hanako" });
+    const { id: newId } = await mgr.createAgent({
+      name: "CompositeAgent",
+      yuan: "hanako",
+    });
 
     const cfgPath = path.join(agentsDir, newId, "config.yaml");
     const cfg = YAML.load(fs.readFileSync(cfgPath, "utf-8"));
-    expect(cfg.models.chat).toEqual({ id: "test-model", provider: "test-provider" });
+    expect(cfg.models.chat).toEqual({
+      id: "test-model",
+      provider: "test-provider",
+    });
   });
 
   it("renders identity template placeholders for newly created agents", async () => {
-    fs.mkdirSync(path.join(productDir, "identity-templates"), { recursive: true });
+    fs.mkdirSync(path.join(productDir, "identity-templates"), {
+      recursive: true,
+    });
     fs.writeFileSync(
       path.join(productDir, "identity-templates", "openZetcX.md"),
       "# {{agentName}}\n\n{{userName}}的个人助手。\n",
       "utf-8",
     );
 
-    const { id: newId } = await mgr.createAgent({ name: "TemplateAgent", yuan: "hanako" });
+    const { id: newId } = await mgr.createAgent({
+      name: "TemplateAgent",
+      yuan: "hanako",
+    });
 
     const identity = fs.readFileSync(path.join(agentsDir, newId, "identity.md"), "utf-8");
     expect(identity).toContain("# TemplateAgent");
@@ -241,10 +259,43 @@ describe("AgentManager.createAgent default skills.enabled", () => {
     expect(ishiki).toContain("不同 Agent");
   });
 
+  it("keeps two agents created from openZetc isolated after later creation", async () => {
+    const { id: firstId } = await mgr.createAgent({
+      name: "FirstFoundationAgent",
+      yuan: "openZetcX",
+      rolePreset: "general",
+    } as any);
+    const firstDir = path.join(agentsDir, firstId);
+    fs.writeFileSync(path.join(firstDir, "identity.md"), "# 第一个角色的个性身份\n", "utf-8");
+    fs.writeFileSync(path.join(firstDir, "ishiki.md"), "# 第一个角色的个性意识\n", "utf-8");
+    fs.writeFileSync(
+      path.join(firstDir, "sessions", "conversation.jsonl"),
+      '{"type":"message","content":"第一个角色的私有对话"}\n',
+      "utf-8",
+    );
+
+    const { id: secondId } = await mgr.createAgent({
+      name: "SecondFoundationAgent",
+      yuan: "openZetcX",
+      rolePreset: "general",
+    } as any);
+
+    expect(secondId).not.toBe(firstId);
+    expect(fs.readFileSync(path.join(firstDir, "identity.md"), "utf-8")).toBe("# 第一个角色的个性身份\n");
+    expect(fs.readFileSync(path.join(firstDir, "ishiki.md"), "utf-8")).toBe("# 第一个角色的个性意识\n");
+    expect(fs.readFileSync(path.join(firstDir, "sessions", "conversation.jsonl"), "utf-8")).toContain(
+      "第一个角色的私有对话",
+    );
+    expect(fs.existsSync(path.join(agentsDir, secondId, "sessions", "conversation.jsonl"))).toBe(false);
+  });
+
   it("defaults patrol to disabled with a 31 minute interval for newly created agents", async () => {
     skillsMock._allSkills = [];
 
-    const { id: newId } = await mgr.createAgent({ name: "DeskAgent", yuan: "hanako" });
+    const { id: newId } = await mgr.createAgent({
+      name: "DeskAgent",
+      yuan: "hanako",
+    });
 
     const cfgPath = path.join(agentsDir, newId, "config.yaml");
     const cfg = YAML.load(fs.readFileSync(cfgPath, "utf-8"));
@@ -255,7 +306,10 @@ describe("AgentManager.createAgent default skills.enabled", () => {
   it("defaults the memory master switch to enabled for newly created agents", async () => {
     skillsMock._allSkills = [];
 
-    const { id: newId } = await mgr.createAgent({ name: "QuietMemoryAgent", yuan: "hanako" });
+    const { id: newId } = await mgr.createAgent({
+      name: "QuietMemoryAgent",
+      yuan: "hanako",
+    });
 
     const cfgPath = path.join(agentsDir, newId, "config.yaml");
     const cfg = YAML.load(fs.readFileSync(cfgPath, "utf-8"));
@@ -291,7 +345,9 @@ describe("AgentManager.createAgent default skills.enabled", () => {
 
     const cfgPath = path.join(agentsDir, newId, "config.yaml");
     const memoryDir = path.join(agentsDir, newId, "memory");
-    const seed = JSON.parse(fs.readFileSync(path.join(memoryDir, "summaries", "character-card-import-test.json"), "utf-8"));
+    const seed = JSON.parse(
+      fs.readFileSync(path.join(memoryDir, "summaries", "character-card-import-test.json"), "utf-8"),
+    );
     const cfg = YAML.load(fs.readFileSync(cfgPath, "utf-8"));
     expect(cfg.skills.enabled).toEqual(["card-skill"]);
     expect(fs.readFileSync(path.join(agentsDir, newId, "identity.md"), "utf-8")).toBe("Imported identity");
@@ -308,57 +364,43 @@ describe("AgentManager.createAgent default skills.enabled", () => {
     fs.mkdirSync(path.join(agentsDir, "memory-off"), { recursive: true });
     fs.writeFileSync(
       path.join(agentsDir, "memory-off", "config.yaml"),
-      [
-        "agent:",
-        "  name: Memory Off",
-        "memory:",
-        "  enabled: false",
-      ].join("\n"),
+      ["agent:", "  name: Memory Off", "memory:", "  enabled: false"].join("\n"),
     );
     fs.mkdirSync(path.join(agentsDir, "memory-on"), { recursive: true });
     fs.writeFileSync(
       path.join(agentsDir, "memory-on", "config.yaml"),
-      [
-        "agent:",
-        "  name: Memory On",
-        "memory:",
-        "  enabled: true",
-      ].join("\n"),
+      ["agent:", "  name: Memory On", "memory:", "  enabled: true"].join("\n"),
     );
 
     const agents = mgr.listAgents();
 
-    expect(agents.find(a => a.id === "memory-off").memoryMasterEnabled).toBe(false);
-    expect(agents.find(a => a.id === "memory-on").memoryMasterEnabled).toBe(true);
+    expect(agents.find((a) => a.id === "memory-off").memoryMasterEnabled).toBe(false);
+    expect(agents.find((a) => a.id === "memory-on").memoryMasterEnabled).toBe(true);
   });
 
   it("normalizes legacy yuan keys when reading agent metadata", async () => {
     fs.mkdirSync(path.join(agentsDir, "legacy-list"), { recursive: true });
     fs.writeFileSync(
       path.join(agentsDir, "legacy-list", "config.yaml"),
-      [
-        "agent:",
-        "  name: Legacy List",
-        "  yuan: butter",
-      ].join("\n"),
+      ["agent:", "  name: Legacy List", "  yuan: butter"].join("\n"),
     );
     fs.mkdirSync(path.join(agentsDir, "legacy-deleted"), { recursive: true });
     fs.writeFileSync(
       path.join(agentsDir, "legacy-deleted", "config.yaml"),
-      [
-        "agent:",
-        "  name: Legacy Deleted",
-        "  yuan: butter",
-      ].join("\n"),
+      ["agent:", "  name: Legacy Deleted", "  yuan: butter"].join("\n"),
     );
     fs.writeFileSync(
       path.join(agentsDir, "legacy-deleted", ".deleted-agent.json"),
-      JSON.stringify({ agentName: "Legacy Deleted", yuan: "butter", deletedAt: "2026-06-29T00:00:00.000Z" }),
+      JSON.stringify({
+        agentName: "Legacy Deleted",
+        yuan: "butter",
+        deletedAt: "2026-06-29T00:00:00.000Z",
+      }),
     );
 
     const agents = mgr.listAgents();
 
-    expect(agents.find(a => a.id === "legacy-list").yuan).toBe("openZetcX");
+    expect(agents.find((a) => a.id === "legacy-list").yuan).toBe("openZetcX");
     expect(mgr.getDeletedAgentInfo("legacy-deleted").yuan).toBe("openZetcX");
   });
 });

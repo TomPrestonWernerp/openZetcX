@@ -22,15 +22,7 @@ describe("first run default workspace", () => {
     fs.mkdirSync(path.join(productDir, "role-avatars"), { recursive: true });
     fs.writeFileSync(
       path.join(productDir, "config.example.yaml"),
-      [
-        "agent:",
-        "  name: Hanako",
-        "  yuan: hanako",
-        "user:",
-        '  name: ""',
-        "models:",
-        '  chat: ""',
-      ].join("\n"),
+      ["agent:", "  name: Hanako", "  yuan: hanako", "user:", '  name: ""', "models:", '  chat: ""'].join("\n"),
       "utf-8",
     );
     for (const role of OPENZETCX_DEFAULT_ROLE_PRESETS) {
@@ -75,6 +67,66 @@ describe("first run default workspace", () => {
 
     const prefs = JSON.parse(fs.readFileSync(path.join(openZetcXHome, "user", "preferences.json"), "utf-8"));
     expect(prefs.primaryAgent).toBe("general");
+    expect(fs.readdirSync(path.join(openZetcXHome, "agents"))).toEqual(["general"]);
+  });
+
+  it("keeps all 0.6.1 roles, personalized consciousness, and conversations during upgrade", async () => {
+    const legacyRoleIds = [
+      "general",
+      "developer",
+      "project_manager",
+      "analyst",
+      "researcher",
+      "writer",
+      "reviewer",
+      "document_specialist",
+      "operations",
+      "coordinator",
+    ];
+    for (const agentId of legacyRoleIds) {
+      const agentDir = path.join(openZetcXHome, "agents", agentId);
+      fs.mkdirSync(path.join(agentDir, "sessions"), { recursive: true });
+      fs.writeFileSync(
+        path.join(agentDir, "config.yaml"),
+        `agent:\n  name: 用户的 ${agentId}\n  yuan: openZetcX\n  rolePreset: ${agentId}\n`,
+        "utf-8",
+      );
+      fs.writeFileSync(path.join(agentDir, "identity.md"), `# ${agentId} 的个性身份\n`, "utf-8");
+      fs.writeFileSync(path.join(agentDir, "ishiki.md"), `# ${agentId} 的个性意识\n`, "utf-8");
+      fs.writeFileSync(
+        path.join(agentDir, "sessions", `${agentId}-conversation.jsonl`),
+        JSON.stringify({
+          type: "message",
+          role: "user",
+          content: `${agentId} 的历史对话`,
+        }) + "\n",
+        "utf-8",
+      );
+    }
+    fs.mkdirSync(path.join(openZetcXHome, "user"), { recursive: true });
+    fs.writeFileSync(
+      path.join(openZetcXHome, "user", "preferences.json"),
+      JSON.stringify({ primaryAgent: "writer" }),
+      "utf-8",
+    );
+    const { ensureFirstRun } = await import("../core/first-run.ts");
+
+    const report = ensureFirstRun(openZetcXHome, productDir);
+
+    expect(report.repairedDefaultAgent).toBe(false);
+    expect(report.invalidAgentDirs).toEqual([]);
+    expect(fs.readdirSync(path.join(openZetcXHome, "agents")).sort()).toEqual([...legacyRoleIds].sort());
+    for (const agentId of legacyRoleIds) {
+      const agentDir = path.join(openZetcXHome, "agents", agentId);
+      expect(fs.readFileSync(path.join(agentDir, "identity.md"), "utf-8")).toBe(`# ${agentId} 的个性身份\n`);
+      expect(fs.readFileSync(path.join(agentDir, "ishiki.md"), "utf-8")).toBe(`# ${agentId} 的个性意识\n`);
+      expect(fs.readFileSync(path.join(agentDir, "sessions", `${agentId}-conversation.jsonl`), "utf-8")).toContain(
+        `${agentId} 的历史对话`,
+      );
+    }
+    expect(JSON.parse(fs.readFileSync(path.join(openZetcXHome, "user", "preferences.json"), "utf-8"))).toEqual({
+      primaryAgent: "writer",
+    });
   });
 
   it("keeps user edits on the existing default role during startup", async () => {
@@ -110,11 +162,7 @@ describe("first run default workspace", () => {
     for (const agentId of legacyAgentIds) {
       const agentDir = path.join(openZetcXHome, "agents", agentId);
       fs.mkdirSync(agentDir, { recursive: true });
-      fs.writeFileSync(
-        path.join(agentDir, "config.yaml"),
-        `agent:\n  name: ${agentId}\n  yuan: openZetcX\n`,
-        "utf-8",
-      );
+      fs.writeFileSync(path.join(agentDir, "config.yaml"), `agent:\n  name: ${agentId}\n  yuan: openZetcX\n`, "utf-8");
     }
     const { ensureFirstRun } = await import("../core/first-run.ts");
 
@@ -136,7 +184,9 @@ describe("first run default workspace", () => {
   });
 
   it("repairs a half-initialized primary default role directory", async () => {
-    fs.mkdirSync(path.join(openZetcXHome, "agents", "general", "memory"), { recursive: true });
+    fs.mkdirSync(path.join(openZetcXHome, "agents", "general", "memory"), {
+      recursive: true,
+    });
     const { ensureFirstRun } = await import("../core/first-run.ts");
 
     ensureFirstRun(openZetcXHome, productDir);
@@ -153,9 +203,7 @@ describe("first run default workspace", () => {
 
     const report = ensureFirstRun(openZetcXHome, productDir);
 
-    expect(report.invalidAgentDirs).toEqual([
-      { id: "kon", reason: "config_missing" },
-    ]);
+    expect(report.invalidAgentDirs).toEqual([{ id: "kon", reason: "config_missing" }]);
     expect(fs.existsSync(path.join(openZetcXHome, "agents", "general", "config.yaml"))).toBe(true);
     expect(fs.existsSync(path.join(openZetcXHome, "agents", "kon", "pinned.md"))).toBe(false);
     expect(fs.existsSync(path.join(openZetcXHome, "agents", "general", "pinned.md"))).toBe(true);
@@ -235,10 +283,7 @@ describe("first run default workspace", () => {
     ensureFirstRun(openZetcXHome, productDir);
 
     for (const skillName of bundledSkills) {
-      const installedSkill = fs.readFileSync(
-        path.join(openZetcXHome, "skills", skillName, "SKILL.md"),
-        "utf-8",
-      );
+      const installedSkill = fs.readFileSync(path.join(openZetcXHome, "skills", skillName, "SKILL.md"), "utf-8");
       expect(installedSkill).toContain(`name: ${skillName}`);
       expect(installedSkill).toContain("# bundled");
     }

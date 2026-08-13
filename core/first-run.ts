@@ -8,17 +8,11 @@
 import fs from "fs";
 import path from "path";
 import YAML from "js-yaml";
-import { safeCopyDir } from '../shared/safe-fs.ts';
-import { AppError } from '../shared/errors.ts';
-import { errorBus } from '../shared/error-bus.ts';
-import {
-  DEFAULT_HEARTBEAT_INTERVAL_MINUTES,
-  ensureDefaultWorkspace,
-} from "../shared/default-workspace.ts";
-import {
-  OPENZETCX_DEFAULT_ROLE_PRESETS,
-  OPENZETCX_PRIMARY_DEFAULT_ROLE_ID,
-} from "../shared/openzetcx-role-presets.ts";
+import { safeCopyDir } from "../shared/safe-fs.ts";
+import { AppError } from "../shared/errors.ts";
+import { errorBus } from "../shared/error-bus.ts";
+import { DEFAULT_HEARTBEAT_INTERVAL_MINUTES, ensureDefaultWorkspace } from "../shared/default-workspace.ts";
+import { OPENZETCX_DEFAULT_ROLE_PRESETS, OPENZETCX_PRIMARY_DEFAULT_ROLE_ID } from "../shared/openzetcx-role-presets.ts";
 import { createModuleLogger } from "../lib/debug-log.ts";
 import { USER_PROFILE_FILENAME } from "../lib/user-profile-store.ts";
 
@@ -45,7 +39,7 @@ export interface FirstRunReport {
  * 确保 ~/.openZetcX/ 数据目录就绪
  *
  * 对 agent 目录采用"分类处置"而不是 fail-fast：
- * - 默认 agent（hanako）缺 config → 播种修复；config 损坏 → 先备份再播种
+ * - 默认 agent（general/openZetc）缺 config → 播种修复；config 损坏 → 先备份再播种
  * - 非默认目录缺/坏 config → 跳过并记入诊断报告，不阻断启动、不动用户数据
  * 历史上脏目录有多个来源（旧版物理删除残留、phone projection 复活、半截创建），
  * 启动链路必须容忍它们，运行时扫描（AgentManager）本来就会跳过这类目录。
@@ -60,8 +54,9 @@ export function ensureFirstRun(openZetcXHome, productDir): FirstRunReport {
 
   // 2. 分类每个 agent 目录；没有任何可用 agent → 播种默认 agent
   const agentsDir = path.join(openZetcXHome, "agents");
-  const agentEntries = fs.readdirSync(agentsDir, { withFileTypes: true })
-    .filter(entry => entry.isDirectory() && !entry.name.startsWith('.'));
+  const agentEntries = fs
+    .readdirSync(agentsDir, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory() && !entry.name.startsWith("."));
 
   const invalidAgentDirs: InvalidAgentDirReport[] = [];
   const validAgentIds = new Set<string>();
@@ -83,9 +78,9 @@ export function ensureFirstRun(openZetcXHome, productDir): FirstRunReport {
     }
     invalidAgentDirs.push({ id: entry.name, reason: cls.reason });
     log.warn(
-      `invalid agent directory "${entry.name}": `
-      + (cls.reason === "config_missing" ? "config.yaml missing" : `config.yaml is not readable: ${cls.detail}`)
-      + "（已跳过，不阻断启动；目录内容保留，请手动确认后清理）",
+      `invalid agent directory "${entry.name}": ` +
+        (cls.reason === "config_missing" ? "config.yaml missing" : `config.yaml is not readable: ${cls.detail}`) +
+        "（已跳过，不阻断启动；目录内容保留，请手动确认后清理）",
     );
   }
 
@@ -123,10 +118,12 @@ export function ensureFirstRun(openZetcXHome, productDir): FirstRunReport {
 
   // 4. 确保可选文件存在（老用户升级 + 新 agent 都覆盖）。
   // 只补有效 agent 目录：往无效目录里写 pinned.md 会把垃圾目录越喂越像 agent 目录。
-  const touchIfMissing = (p) => { if (!fs.existsSync(p)) fs.writeFileSync(p, '', 'utf-8'); };
-  touchIfMissing(path.join(openZetcXHome, 'user', USER_PROFILE_FILENAME));
+  const touchIfMissing = (p) => {
+    if (!fs.existsSync(p)) fs.writeFileSync(p, "", "utf-8");
+  };
+  touchIfMissing(path.join(openZetcXHome, "user", USER_PROFILE_FILENAME));
   for (const agentId of validAgentIds) {
-    touchIfMissing(path.join(agentsDir, agentId, 'pinned.md'));
+    touchIfMissing(path.join(agentsDir, agentId, "pinned.md"));
   }
 
   // 5. 确保 user/preferences.json 存在
@@ -134,9 +131,13 @@ export function ensureFirstRun(openZetcXHome, productDir): FirstRunReport {
   if (!fs.existsSync(prefsPath)) {
     fs.writeFileSync(
       prefsPath,
-      JSON.stringify({
-        primaryAgent: DEFAULT_AGENT_ID,
-      }, null, 2) + "\n",
+      JSON.stringify(
+        {
+          primaryAgent: DEFAULT_AGENT_ID,
+        },
+        null,
+        2,
+      ) + "\n",
       "utf-8",
     );
   }
@@ -145,7 +146,11 @@ export function ensureFirstRun(openZetcXHome, productDir): FirstRunReport {
 
 type AgentDirClassification =
   | { status: "valid" }
-  | { status: "invalid"; reason: "config_missing" | "config_unreadable"; detail?: string };
+  | {
+      status: "invalid";
+      reason: "config_missing" | "config_unreadable";
+      detail?: string;
+    };
 
 function classifyAgentDirectoryForStartup(agentsDir, agentId): AgentDirClassification {
   const cfgPath = path.join(agentsDir, agentId, "config.yaml");
@@ -156,7 +161,11 @@ function classifyAgentDirectoryForStartup(agentsDir, agentId): AgentDirClassific
     void YAML.load(fs.readFileSync(cfgPath, "utf-8"));
     return { status: "valid" };
   } catch (err) {
-    return { status: "invalid", reason: "config_unreadable", detail: err?.message || String(err) };
+    return {
+      status: "invalid",
+      reason: "config_unreadable",
+      detail: err?.message || String(err),
+    };
   }
 }
 
@@ -179,7 +188,8 @@ function seedDefaultAgents(agentsDir, productDir, rolePresets = OPENZETCX_DEFAUL
 }
 
 /**
- * 从内置职业预设播种默认 agent（与 engine.createAgent 相同逻辑，但纯同步、无依赖）。
+ * 从当前内置基础预设播种默认 agent（与 engine.createAgent 相同逻辑，但纯同步、无依赖）。
+ * 0.6.1 的职业角色不再进入此列表；升级时其目录和会话会被当作普通用户 Agent 原样保留。
  */
 function seedDefaultAgent(agentsDir, productDir, rolePreset) {
   const agentId = rolePreset.id;
@@ -217,7 +227,16 @@ function seedDefaultAgent(agentsDir, productDir, rolePreset) {
     ...(raw.memory || {}),
     enabled: true,
   };
-  fs.writeFileSync(cfgDest, YAML.dump(raw, { indent: 2, lineWidth: -1, sortKeys: false, quotingType: '"' }), "utf-8");
+  fs.writeFileSync(
+    cfgDest,
+    YAML.dump(raw, {
+      indent: 2,
+      lineWidth: -1,
+      sortKeys: false,
+      quotingType: '"',
+    }),
+    "utf-8",
+  );
 
   const firstExisting = (paths) => paths.find((p) => fs.existsSync(p));
 
@@ -236,9 +255,7 @@ function seedDefaultAgent(agentsDir, productDir, rolePreset) {
   );
 
   // public-ishiki.md（对外意识模板）
-  const publicIshikiSrc = firstExisting([
-    path.join(productDir, "public-ishiki-templates", `${DEFAULT_YUAN_ID}.md`),
-  ]);
+  const publicIshikiSrc = firstExisting([path.join(productDir, "public-ishiki-templates", `${DEFAULT_YUAN_ID}.md`)]);
   if (publicIshikiSrc) {
     fs.copyFileSync(publicIshikiSrc, path.join(agentDir, "public-ishiki.md"));
   }
@@ -261,7 +278,16 @@ function syncDefaultRoleMetadata(agentsDir, productDir, validAgentIds: Set<strin
     };
     if (JSON.stringify(nextAgent) !== JSON.stringify(raw.agent || {})) {
       raw.agent = nextAgent;
-      fs.writeFileSync(cfgPath, YAML.dump(raw, { indent: 2, lineWidth: -1, sortKeys: false, quotingType: '"' }), "utf-8");
+      fs.writeFileSync(
+        cfgPath,
+        YAML.dump(raw, {
+          indent: 2,
+          lineWidth: -1,
+          sortKeys: false,
+          quotingType: '"',
+        }),
+        "utf-8",
+      );
     }
     const identityPath = path.join(agentDir, "identity.md");
     if (!fs.existsSync(identityPath)) {
@@ -319,10 +345,12 @@ function syncSkills(srcDir, dstDir) {
     try {
       safeCopyDir(skillSrc, skillDst);
     } catch (err) {
-      errorBus.report(new AppError('SKILL_SYNC_FAILED', {
-        cause: err instanceof Error ? err : new Error(String(err)),
-        context: { skill: entry.name },
-      }));
+      errorBus.report(
+        new AppError("SKILL_SYNC_FAILED", {
+          cause: err instanceof Error ? err : new Error(String(err)),
+          context: { skill: entry.name },
+        }),
+      );
       // Continue with other skills, don't abort
     }
   }
