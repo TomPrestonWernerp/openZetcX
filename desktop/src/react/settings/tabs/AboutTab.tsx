@@ -65,12 +65,8 @@ export function AboutTab() {
         )}
       </div>
 
-      {/* Info：license / copyright / update toggles */}
+      {/* Info：copyright / update toggles */}
       <SettingsSection>
-        <SettingsRow
-          label={t('settings.about.license')}
-          control={<span>Apache License 2.0</span>}
-        />
         <SettingsRow
           label={t('settings.about.copyright')}
           control={<span>浙江省环境科技股份有限公司 © 2026</span>}

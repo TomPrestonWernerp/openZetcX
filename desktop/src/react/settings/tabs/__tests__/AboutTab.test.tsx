@@ -83,6 +83,8 @@ describe('AboutTab', () => {
     expect(screen.getByRole('img', { name: 'openZetc' })).toBeTruthy();
     expect(screen.getByText('openZetc')).toBeTruthy();
     expect(screen.getByText('浙江省环境科技股份有限公司 © 2026')).toBeTruthy();
+    expect(screen.queryByText('settings.about.license')).toBeNull();
+    expect(screen.queryByText('Apache License 2.0')).toBeNull();
   });
 
   it('runs a real updater check from the about-page button', () => {
