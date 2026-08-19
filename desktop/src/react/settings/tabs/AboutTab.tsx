@@ -49,13 +49,13 @@ export function AboutTab() {
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="about">
       {/* Hero：保留原 about-hero 独立视觉组件（icon + name + tagline + version + update + check 按钮） */}
       <div className={styles['about-hero']}>
-        <img className={styles['about-icon']} src={appIconUrl} alt="openZetcX" />
-        <div className={styles['about-name']}>openZetcX</div>
+        <img className={styles['about-icon']} src={appIconUrl} alt="openZetc" />
+        <div className={styles['about-name']}>openZetc</div>
         <div className={styles['about-tagline']}>{t('settings.about.tagline')}</div>
         {version && <div className={styles['about-version']}>v{version}</div>}
         <AutoUpdateStatus
           state={autoUpdate}
-          agentName={settingsConfig?.agent?.name || 'openZetcX'}
+          agentName={settingsConfig?.agent?.name || 'openZetc'}
           onInstall={handleInstall}
         />
         {(!autoUpdate || autoUpdate.status === 'idle' || autoUpdate.status === 'latest' || autoUpdate.status === 'error') && (
@@ -73,7 +73,7 @@ export function AboutTab() {
         />
         <SettingsRow
           label={t('settings.about.copyright')}
-          control={<span>浙江省环境科技有限公司 © 2026</span>}
+          control={<span>浙江省环境科技股份有限公司 © 2026</span>}
         />
         <SettingsRow
           label={t('settings.about.autoCheckUpdates')}

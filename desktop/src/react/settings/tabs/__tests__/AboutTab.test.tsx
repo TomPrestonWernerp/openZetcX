@@ -74,6 +74,17 @@ function installHana() {
 }
 
 describe('AboutTab', () => {
+  it('shows the current product and company branding', () => {
+    installHana();
+    useSettingsStore.setState({ settingsConfig: { auto_check_updates: true, update_channel: 'stable' } });
+
+    render(<AboutTab />);
+
+    expect(screen.getByRole('img', { name: 'openZetc' })).toBeTruthy();
+    expect(screen.getByText('openZetc')).toBeTruthy();
+    expect(screen.getByText('浙江省环境科技股份有限公司 © 2026')).toBeTruthy();
+  });
+
   it('runs a real updater check from the about-page button', () => {
     installHana();
     useSettingsStore.setState({ settingsConfig: { auto_check_updates: true, update_channel: 'stable' } });
