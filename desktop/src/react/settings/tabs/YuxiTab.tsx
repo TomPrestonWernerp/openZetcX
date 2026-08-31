@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { hasServerConnection } from '../../services/server-connection';
 import { hanaFetch } from '../api';
+import { useSettingsStore } from '../store';
 import css from './YuxiTab.module.css';
 
 type YuxiSession = {
@@ -85,10 +87,13 @@ function submissionStatusLabel(status: ResourceSubmission['status'], zh: boolean
   return labels[status] || status;
 }
 
+const ONLINE_SERVICE_BASE_URL = 'https://openzetc.zjshjkj.com';
+
 export function YuxiTab() {
   const zh = (window.i18n?.locale || 'zh-CN').toLowerCase().startsWith('zh');
+  const connectionReady = useSettingsStore(hasServerConnection);
+  const settingsReady = useSettingsStore(state => state.ready);
   const [session, setSession] = useState<YuxiSession | null>(null);
-  const [baseUrl, setBaseUrl] = useState('http://127.0.0.1:5050');
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [requireLogin, setRequireLogin] = useState(true);
@@ -195,14 +200,13 @@ export function YuxiTab() {
       const response = await hanaFetch(`/api/yuxi/session${verify ? '?verify=1' : ''}`, { timeout: 8_000 });
       const nextSession = await response.json() as YuxiSession;
       setSession(nextSession);
-      setBaseUrl(nextSession.baseUrl || 'http://127.0.0.1:5050');
       setRequireLogin(nextSession.requireLogin ?? true);
       if (nextSession.authenticated) await loadCatalogs(nextSession);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
       setSession(current => current || {
         authenticated: false,
-        baseUrl: 'http://127.0.0.1:5050',
+        baseUrl: ONLINE_SERVICE_BASE_URL,
         requireLogin: false,
         user: null,
         access: null,
@@ -211,8 +215,9 @@ export function YuxiTab() {
   }, [loadCatalogs]);
 
   useEffect(() => {
+    if (!connectionReady) return;
     void loadSession(true);
-  }, [loadSession]);
+  }, [connectionReady, loadSession]);
 
   async function refreshCatalogs() {
     setBusy('refresh');
@@ -237,7 +242,12 @@ export function YuxiTab() {
       const response = await hanaFetch('/api/yuxi/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baseUrl, username, password, requireLogin }),
+        body: JSON.stringify({
+          baseUrl: ONLINE_SERVICE_BASE_URL,
+          username,
+          password,
+          requireLogin,
+        }),
         timeout: 20_000,
       });
       const nextSession = await response.json() as YuxiSession;
@@ -423,8 +433,11 @@ export function YuxiTab() {
     if (catalogTabs[0]) setActiveCatalog(catalogTabs[0][0]);
   }, [activeCatalog, catalogTabs, session?.authenticated]);
 
-  if (!session) {
-    return <div className={css.loading}>{zh ? '正在检查账号登录状态…' : 'Checking account session…'}</div>;
+  if (!connectionReady || !session) {
+    const loadingMessage = !connectionReady && settingsReady
+      ? (zh ? '本地服务连接未就绪，请稍后重试…' : 'Local service connection is not ready. Please try again shortly…')
+      : (zh ? '正在检查账号登录状态…' : 'Checking account session…');
+    return <div className={css.loading}>{loadingMessage}</div>;
   }
 
   return (
@@ -466,10 +479,6 @@ export function YuxiTab() {
 
       {!session.authenticated ? (
         <form className={css.loginForm} onSubmit={login}>
-          <label>
-            <span>{zh ? '线上服务地址' : 'Online service URL'}</span>
-            <input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} placeholder="http://127.0.0.1:5050" />
-          </label>
           <div className={css.loginGrid}>
             <label>
               <span>{zh ? '账号 / 用户 ID / 手机号' : 'Account / user ID / phone'}</span>
