@@ -14,9 +14,11 @@ type GateSession = {
   } | null;
 };
 
+const ONLINE_SERVICE_BASE_URL = 'https://openzetc.zjshjkj.com';
+
 const DEFAULT_SESSION: GateSession = {
   authenticated: false,
-  baseUrl: 'http://127.0.0.1:5050',
+  baseUrl: ONLINE_SERVICE_BASE_URL,
   requireLogin: false,
   user: null,
 };
@@ -37,7 +39,6 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<GateSession>(DEFAULT_SESSION);
   const [checking, setChecking] = useState(false);
   const [blocked, setBlocked] = useState(false);
-  const [baseUrl, setBaseUrl] = useState(DEFAULT_SESSION.baseUrl);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -52,7 +53,6 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
       if (!response.ok) throw new Error(await responseMessage(response));
       let nextSession = await response.json() as GateSession;
       setSession(nextSession);
-      setBaseUrl(nextSession.baseUrl || DEFAULT_SESSION.baseUrl);
       if (nextSession.authenticated) {
         const verified = await hanaFetch('/api/yuxi/session?verify=1', {
           throwOnHttpError: false,
@@ -93,7 +93,12 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
       const response = await hanaFetch('/api/yuxi/login', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ baseUrl, username, password, requireLogin: true }),
+        body: JSON.stringify({
+          baseUrl: ONLINE_SERVICE_BASE_URL,
+          username,
+          password,
+          requireLogin: true,
+        }),
         throwOnHttpError: false,
         timeout: 20_000,
       });
@@ -129,10 +134,6 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
           ? '此 openZetc 已启用线上验证。请使用同一账号访问有权限的 Agent、Skill 与知识库。'
           : 'This openZetc installation requires online verification. Use the same account to access permitted agents, skills, and knowledge bases.'}</p>
         {error && <div className={css.error} role="alert">{error}</div>}
-        <label>
-          <span>{zh ? '线上服务地址' : 'Online service URL'}</span>
-          <input value={baseUrl} onChange={event => setBaseUrl(event.target.value)} required />
-        </label>
         <label>
           <span>{zh ? '账号 / 用户 ID / 手机号' : 'Account / user ID / phone'}</span>
           <input value={username} onChange={event => setUsername(event.target.value)} autoComplete="username" required />
