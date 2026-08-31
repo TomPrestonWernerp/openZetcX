@@ -64,7 +64,7 @@ afterEach(() => {
 function installHana() {
   vi.stubGlobal('window', Object.assign(window, {
     hana: {
-      getAppVersion: vi.fn().mockResolvedValue('0.160.2'),
+      getAppVersion: vi.fn().mockResolvedValue('0.7.100'),
       autoUpdateCheck: vi.fn(),
       autoUpdateInstall: vi.fn(),
       autoUpdateSetChannel: vi.fn(),
@@ -74,7 +74,7 @@ function installHana() {
 }
 
 describe('AboutTab', () => {
-  it('shows the current product and company branding', () => {
+  it('shows the current product, release version and company branding', async () => {
     installHana();
     useSettingsStore.setState({ settingsConfig: { auto_check_updates: true, update_channel: 'stable' } });
 
@@ -82,6 +82,7 @@ describe('AboutTab', () => {
 
     expect(screen.getByRole('img', { name: 'openZetc' })).toBeTruthy();
     expect(screen.getByText('openZetc')).toBeTruthy();
+    expect(await screen.findByText('v0.7.100')).toBeTruthy();
     expect(screen.getByText('浙江省环境科技股份有限公司 © 2026')).toBeTruthy();
     expect(screen.queryByText('settings.about.license')).toBeNull();
     expect(screen.queryByText('Apache License 2.0')).toBeNull();

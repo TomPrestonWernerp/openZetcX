@@ -409,37 +409,8 @@ export function PluginsTab() {
     </button>
   );
 
-  const marketplaceButton = (
-    <button
-      className={styles['settings-save-btn-sm']}
-      title={t('settings.plugins.openMarketplace')}
-      onClick={() => set({ activeTab: 'plugin-marketplace' })}
-    >
-      {t('settings.plugins.openMarketplace')}
-    </button>
-  );
-
-  const marketplaceBody = (
-    <div className={styles['skills-list-block']}>
-      <div className={styles['skills-list-item']} style={{ cursor: 'default' }}>
-        <div className={styles['skills-list-info']}>
-          <span className={styles['skills-list-name']}>{t('settings.plugins.marketplaceTitle')}</span>
-          <span className={styles['skills-list-desc']}>{t('settings.plugins.marketplaceHint')}</span>
-        </div>
-        <div className={styles['skills-list-actions']}>{marketplaceButton}</div>
-      </div>
-    </div>
-  );
-
   return (
     <div className={`${styles['settings-tab-content']} ${styles['active']}`} data-tab="plugins">
-      <SettingsSection
-        title={t('settings.plugins.marketplaceTitle')}
-        variant="flush"
-      >
-        {marketplaceBody}
-      </SettingsSection>
-
       {/* 管理插件：dropzone + 列表 + 路径提示，同一 flush section；reload 按钮放 context */}
       <SettingsSection
         title={t('settings.plugins.manageTitle')}

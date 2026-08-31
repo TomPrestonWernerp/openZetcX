@@ -61,4 +61,15 @@ describe('PluginsTab settings switches', () => {
       expect(item.disabled).toBe(true);
     }
   });
+
+  it('hides the Skill marketplace entry while keeping plugin management visible', async () => {
+    const { PluginsTab } = await import('../PluginsTab');
+
+    render(<PluginsTab />);
+
+    expect(screen.queryByText('settings.plugins.marketplaceTitle')).toBeNull();
+    expect(screen.queryByText('settings.plugins.marketplaceHint')).toBeNull();
+    expect(screen.queryByText('settings.plugins.openMarketplace')).toBeNull();
+    expect(screen.getByText('settings.plugins.manageTitle')).toBeTruthy();
+  });
 });
