@@ -127,6 +127,7 @@
     "appId": "com.openZetcX.app",
     "productName": "openZetcX",
     "asar": true,
+    "compression": "maximum",
     "npmRebuild": false,
     "afterPack": "./scripts/fix-modules.cjs",
     "extraMetadata": {
