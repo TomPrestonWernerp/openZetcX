@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react';
 import { createPortal } from 'react-dom';
+import { YUXI_ONLINE_SERVICE_BASE_URL } from '../../../../../shared/yuxi-service';
 import { hasServerConnection } from '../../services/server-connection';
 import { hanaFetch } from '../api';
 import { useSettingsStore } from '../store';
@@ -86,8 +87,6 @@ function submissionStatusLabel(status: ResourceSubmission['status'], zh: boolean
     : { pending: 'Pending review', reviewing: 'Publishing', approved: 'Published', rejected: 'Rejected' };
   return labels[status] || status;
 }
-
-const ONLINE_SERVICE_BASE_URL = 'https://openzetc.zjshjkj.com';
 
 export function YuxiTab() {
   const zh = (window.i18n?.locale || 'zh-CN').toLowerCase().startsWith('zh');
@@ -206,7 +205,7 @@ export function YuxiTab() {
       setError(loadError instanceof Error ? loadError.message : String(loadError));
       setSession(current => current || {
         authenticated: false,
-        baseUrl: ONLINE_SERVICE_BASE_URL,
+        baseUrl: YUXI_ONLINE_SERVICE_BASE_URL,
         requireLogin: false,
         user: null,
         access: null,
@@ -243,7 +242,7 @@ export function YuxiTab() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          baseUrl: ONLINE_SERVICE_BASE_URL,
+          baseUrl: YUXI_ONLINE_SERVICE_BASE_URL,
           username,
           password,
           requireLogin,

@@ -1,9 +1,13 @@
 import fs from "fs";
 import path from "path";
 import { atomicWriteSync } from "../../shared/safe-fs.ts";
+import {
+  YUXI_LEGACY_LOCAL_SERVICE_BASE_URL,
+  YUXI_ONLINE_SERVICE_BASE_URL,
+} from "../../shared/yuxi-service.ts";
 
-const SESSION_SCHEMA_VERSION = 2;
-const DEFAULT_BASE_URL = "http://127.0.0.1:5050";
+const SESSION_SCHEMA_VERSION = 3;
+const DEFAULT_BASE_URL = YUXI_ONLINE_SERVICE_BASE_URL;
 const DEFAULT_TIMEOUT_MS = 30_000;
 const SESSION_FILE = "yuxi.json";
 const KNOWLEDGE_METADATA_CACHE_TTL_MS = 30_000;
@@ -646,12 +650,17 @@ export class YuxiClient {
   private readSession(): StoredSession {
     try {
       const raw = JSON.parse(fs.readFileSync(this.sessionPath, "utf-8"));
-      if (raw?.schemaVersion !== 1 && raw?.schemaVersion !== SESSION_SCHEMA_VERSION) {
+      if (![1, 2, SESSION_SCHEMA_VERSION].includes(raw?.schemaVersion)) {
         throw new Error("unsupported schemaVersion");
       }
+      const storedBaseUrl = normalizeYuxiBaseUrl(raw.baseUrl);
+      const baseUrl = raw.schemaVersion < SESSION_SCHEMA_VERSION
+        && storedBaseUrl === YUXI_LEGACY_LOCAL_SERVICE_BASE_URL
+        ? DEFAULT_BASE_URL
+        : storedBaseUrl;
       return {
         schemaVersion: SESSION_SCHEMA_VERSION,
-        baseUrl: normalizeYuxiBaseUrl(raw.baseUrl),
+        baseUrl,
         accessToken: typeof raw.accessToken === "string" && raw.accessToken ? raw.accessToken : null,
         user: raw.user && typeof raw.user === "object" ? raw.user : null,
         access: raw.access && typeof raw.access === "object" ? raw.access : null,
