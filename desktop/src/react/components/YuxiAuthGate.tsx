@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState, type FormEvent, type ReactNode } from 'react';
+import { YUXI_ONLINE_SERVICE_BASE_URL } from '../../../../shared/yuxi-service';
 import { hanaFetch } from '../hooks/use-hana-fetch';
 import { useStore } from '../stores';
 import css from './YuxiAuthGate.module.css';
@@ -14,11 +15,9 @@ type GateSession = {
   } | null;
 };
 
-const ONLINE_SERVICE_BASE_URL = 'https://openzetc.zjshjkj.com';
-
 const DEFAULT_SESSION: GateSession = {
   authenticated: false,
-  baseUrl: ONLINE_SERVICE_BASE_URL,
+  baseUrl: YUXI_ONLINE_SERVICE_BASE_URL,
   requireLogin: false,
   user: null,
 };
@@ -94,7 +93,7 @@ export function YuxiAuthGate({ children }: { children: ReactNode }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          baseUrl: ONLINE_SERVICE_BASE_URL,
+          baseUrl: YUXI_ONLINE_SERVICE_BASE_URL,
           username,
           password,
           requireLogin: true,

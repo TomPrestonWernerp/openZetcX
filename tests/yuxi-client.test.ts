@@ -16,11 +16,42 @@ describe("YuxiClient", () => {
   });
 
   it("normalizes server URLs and rejects embedded credentials", () => {
+    expect(normalizeYuxiBaseUrl(undefined)).toBe("https://openzetc.zjshjkj.com");
     expect(normalizeYuxiBaseUrl("http://127.0.0.1:5050///")).toBe("http://127.0.0.1:5050");
     expect(() => normalizeYuxiBaseUrl("ftp://example.com")).toThrow(YuxiClientError);
     expect(() => normalizeYuxiBaseUrl("https://user:password@example.com")).toThrow(YuxiClientError);
     expect(() => normalizeYuxiBaseUrl("http://yuxi.example.com")).toThrowError(
       expect.objectContaining({ code: "YUXI_HTTPS_REQUIRED" }),
+    );
+  });
+
+  it("uses the online service for knowledge requests and migrates the legacy local default", async () => {
+    const fetchImpl = vi.fn(async () => Response.json({ databases: [] }));
+    const client = new YuxiClient({ openZetcXHome: tempRoot, fetchImpl: fetchImpl as typeof fetch });
+    expect(client.getSession().baseUrl).toBe("https://openzetc.zjshjkj.com");
+
+    fs.mkdirSync(path.join(tempRoot, "integrations"), { recursive: true });
+    fs.writeFileSync(path.join(tempRoot, "integrations", "yuxi.json"), JSON.stringify({
+      schemaVersion: 2,
+      baseUrl: "http://127.0.0.1:5050",
+      accessToken: "legacy-token",
+      user: { username: "alice", uid: "u-alice", role: "user" },
+      access: {
+        user_id: 7,
+        uid: "u-alice",
+        legacy_role: "user",
+        roles: [],
+        permissions: { "knowledge.view": "global" },
+      },
+      requireLogin: false,
+      updatedAt: new Date().toISOString(),
+    }));
+
+    expect(client.getSession().baseUrl).toBe("https://openzetc.zjshjkj.com");
+    await expect(client.listKnowledgeBases()).resolves.toEqual({ databases: [] });
+    expect(fetchImpl).toHaveBeenCalledWith(
+      "https://openzetc.zjshjkj.com/api/knowledge/databases/accessible",
+      expect.objectContaining({ headers: expect.any(Headers) }),
     );
   });
 
@@ -95,7 +126,7 @@ describe("YuxiClient", () => {
   it("fails closed before requesting a resource when RBAC permission is absent", async () => {
     fs.mkdirSync(path.join(tempRoot, "integrations"), { recursive: true });
     fs.writeFileSync(path.join(tempRoot, "integrations", "yuxi.json"), JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       baseUrl: "http://127.0.0.1:5050",
       accessToken: "valid-token",
       user: { username: "alice", uid: "u-alice", role: "user" },
@@ -123,7 +154,7 @@ describe("YuxiClient", () => {
   it("submits a packaged local resource with the authenticated account", async () => {
     fs.mkdirSync(path.join(tempRoot, "integrations"), { recursive: true });
     fs.writeFileSync(path.join(tempRoot, "integrations", "yuxi.json"), JSON.stringify({
-      schemaVersion: 2,
+      schemaVersion: 3,
       baseUrl: "http://127.0.0.1:5050",
       accessToken: "submission-token",
       user: { username: "alice", uid: "u-alice", role: "user" },
