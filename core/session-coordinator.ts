@@ -8,6 +8,7 @@
 import fs from "fs";
 import fsp from "fs/promises";
 import path from "path";
+import { writeTextFileAtomic } from "../shared/atomic-text-file.ts";
 import { createAgentSession, SessionManager, estimateTokens, refreshSessionModelFromRegistry } from "../lib/pi-sdk/index.ts";
 import { isSessionJsonlFilename } from "../lib/session-jsonl.ts";
 import { createDefaultSettings } from "./session-defaults.ts";
@@ -103,7 +104,7 @@ import { buildTurnInputPresentationEvent } from "../lib/turn-input-presentation.
 const log = createModuleLogger("session");
 const SESSION_META_PAYLOAD_DIR = "session-meta-payloads";
 const SESSION_META_PAYLOAD_FIELDS = ["promptSnapshot", "memoryReflectionSnapshot"];
-const SESSION_META_PAYLOAD_INLINE_LIMIT_BYTES = 256 * 1024;
+const SESSION_META_PAYLOAD_INLINE_LIMIT_BYTES = 4 * 1024;
 const SESSION_META_INDEX_MAX_BYTES = 1024 * 1024;
 
 /** 巡检/定时任务默认工具白名单（"*" = 与 chat 一致，全部放行） */
@@ -2294,7 +2295,14 @@ export class SessionCoordinator {
     if (liveSnapshot && typeof liveSnapshot === "object" && !Array.isArray(liveSnapshot)) {
       return liveSnapshot;
     }
-    const metaSnapshot = this._readSessionMetaEntrySync(sessionPath)?.memoryReflectionSnapshot;
+    let metaSnapshot = this._readSessionMetaEntrySync(sessionPath)?.memoryReflectionSnapshot;
+    if (this._isSessionMetaPayloadRef(metaSnapshot, "memoryReflectionSnapshot")) {
+      try {
+        metaSnapshot = JSON.parse(fs.readFileSync(this._sessionMetaPayloadAbsolutePath(
+          this._sessionMetaPathFor(sessionPath), metaSnapshot.path,
+        ), "utf-8"));
+      } catch { return null; }
+    }
     return metaSnapshot && typeof metaSnapshot === "object" && !Array.isArray(metaSnapshot)
       ? metaSnapshot
       : null;
@@ -4208,13 +4216,15 @@ export class SessionCoordinator {
     try {
       const stat = await fsp.stat(metaPath);
       if (stat.size > SESSION_META_INDEX_MAX_BYTES) {
-        const compacted = await this._compactOversizedSessionMeta(metaPath);
-        const data = await this._hydrateSessionMetaPayloads(metaPath, compacted);
-        this._metaCache.set(metaPath, { data, ts: Date.now() });
-        return data;
+        // Compaction is a write: serialize it with normal metadata updates.
+        const compact = () => this._readSessionMetaIndexForWrite(metaPath);
+        const pending = this._metaWriteQueue.then(compact, compact);
+        this._metaWriteQueue = pending.then(() => {}, () => {});
+        return await pending;
       }
       const raw = await fsp.readFile(metaPath, "utf-8");
-      const data = await this._hydrateSessionMetaPayloads(metaPath, JSON.parse(raw));
+      // List rendering needs only the index, not every session's prompt history.
+      const data = JSON.parse(raw);
       this._metaCache.set(metaPath, { data, ts: Date.now() });
       return data;
     } catch {
@@ -4226,7 +4236,9 @@ export class SessionCoordinator {
     try {
       const metaPath = path.join(agent.sessionDir, "session-meta.json");
       const meta = await this._readMetaCached(metaPath);
-      return normalizeSessionPromptSnapshot(meta[path.basename(sessionPath)]?.promptSnapshot);
+      const key = path.basename(sessionPath);
+      const hydrated = await this._hydrateSessionMetaPayloads(metaPath, { [key]: meta[key] });
+      return normalizeSessionPromptSnapshot(hydrated[key]?.promptSnapshot);
     } catch {
       return null;
     }
@@ -4389,7 +4401,7 @@ export class SessionCoordinator {
         delete meta[sessKey].model;
         delete meta[sessKey].modelId;
         meta[sessKey] = await this._externalizeSessionMetaPayloads(metaPath, sessKey, meta[sessKey]);
-        await fsp.writeFile(metaPath, JSON.stringify(meta, null, 2));
+        await writeTextFileAtomic(metaPath, JSON.stringify(meta, null, 2));
         this.invalidateMetaCache(metaPath);
         this._writeSessionCapabilitySnapshot(sessionPath, partial);
         return;
@@ -4469,15 +4481,15 @@ export class SessionCoordinator {
     }
     const compacted: any = {};
     for (const [sessKey, entry] of Object.entries(data)) {
-      compacted[sessKey] = await this._externalizeSessionMetaPayloads(metaPath, sessKey, entry);
+      compacted[sessKey] = await this._externalizeSessionMetaPayloads(metaPath, sessKey, entry, true);
     }
-    await fsp.writeFile(metaPath, JSON.stringify(compacted, null, 2));
+    await writeTextFileAtomic(metaPath, JSON.stringify(compacted, null, 2));
     this.invalidateMetaCache(metaPath);
     log.warn(`oversized session-meta compacted with payload sidecars: ${metaPath}`);
     return compacted;
   }
 
-  async _externalizeSessionMetaPayloads(metaPath: any, sessKey: any, entry: any) {
+  async _externalizeSessionMetaPayloads(metaPath: any, sessKey: any, entry: any, force = false) {
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return entry;
     const next = { ...entry };
     for (const field of SESSION_META_PAYLOAD_FIELDS) {
@@ -4489,11 +4501,12 @@ export class SessionCoordinator {
       } catch {
         continue;
       }
-      if (Buffer.byteLength(encoded, "utf-8") <= SESSION_META_PAYLOAD_INLINE_LIMIT_BYTES) continue;
+      // Even small snapshots accumulate into a huge index over long runtimes.
+      if (!force && Buffer.byteLength(encoded, "utf-8") <= SESSION_META_PAYLOAD_INLINE_LIMIT_BYTES) continue;
       const relPath = this._sessionMetaPayloadRelativePath(sessKey, field);
       const absPath = this._sessionMetaPayloadAbsolutePath(metaPath, relPath);
       await fsp.mkdir(path.dirname(absPath), { recursive: true });
-      await fsp.writeFile(absPath, encoded, "utf-8");
+      await writeTextFileAtomic(absPath, encoded);
       next[field] = {
         kind: "session-meta-payload",
         version: 1,

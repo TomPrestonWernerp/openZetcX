@@ -198,7 +198,7 @@ describe("SessionCoordinator.writeSessionMeta serialization", () => {
     });
     expect(JSON.stringify(rawMeta).length).toBeLessThan(20_000);
 
-    const hydrated = await sessionCoord._readMetaCached(metaPath);
+    const hydrated = await sessionCoord._hydrateSessionMetaPayloads(metaPath, await sessionCoord._readMetaCached(metaPath));
     expect(hydrated[path.basename(fakeSessionPath)].promptSnapshot.systemPrompt).toBe(largePrompt);
 
     const payloadDir = path.join(sessionDir, "session-meta-payloads");
@@ -231,8 +231,34 @@ describe("SessionCoordinator.writeSessionMeta serialization", () => {
     const files = await fsp.readdir(sessionDir);
     expect(files.some((name) => /^session-meta\.oversized\.\d+\.json$/.test(name))).toBe(false);
 
-    const hydrated = await sessionCoord._readMetaCached(metaPath);
+    const hydrated = await sessionCoord._hydrateSessionMetaPayloads(metaPath, await sessionCoord._readMetaCached(metaPath));
     expect(hydrated[path.basename(legacySessionPath)].promptSnapshot.systemPrompt).toBe(largePrompt);
+  });
+
+  it("compacts accumulated small snapshots and keeps list reads lazy during a concurrent save", async () => {
+    const metaPath = path.join(sessionDir, "session-meta.json");
+    const legacy = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [
+      `old-${i}.jsonl`, { memoryEnabled: false, promptSnapshot: { systemPrompt: "x".repeat(20_000) } },
+    ]));
+    await fsp.writeFile(metaPath, JSON.stringify(legacy));
+    await Promise.all([
+      sessionCoord._readMetaCached(metaPath),
+      sessionCoord.writeSessionMeta(fakeSessionPath, { thinkingLevel: "high" }),
+    ]);
+    const index = await sessionCoord._readMetaCached(metaPath);
+    expect(Object.keys(index)).toHaveLength(101);
+    expect(index[path.basename(fakeSessionPath)].thinkingLevel).toBe("high");
+    expect(index['old-0.jsonl'].promptSnapshot.kind).toBe('session-meta-payload');
+    expect((await fsp.stat(metaPath)).size).toBeLessThan(100_000);
+    const hydrated = await sessionCoord._hydrateSessionMetaPayloads(metaPath, { 'old-0.jsonl': index['old-0.jsonl'] });
+    expect(hydrated['old-0.jsonl'].promptSnapshot.systemPrompt).toBe('x'.repeat(20_000));
+    expect(index['old-0.jsonl'].promptSnapshot.systemPrompt).toBeUndefined();
+  });
+
+  it("restores a sidecar memory snapshot synchronously without returning its reference", async () => {
+    const snapshot = { content: 'memory'.repeat(1000) };
+    await sessionCoord.writeSessionMeta(fakeSessionPath, { memoryReflectionSnapshot: snapshot });
+    expect(sessionCoord.getSessionMemoryReflectionSnapshot(fakeSessionPath)).toEqual(snapshot);
   });
 
   it("setSessionPinned writes and clears pinnedAt on the session meta entry", async () => {

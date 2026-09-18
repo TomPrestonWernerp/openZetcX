@@ -72,9 +72,7 @@ async function readRenderedAgentTemplateFile(filePath: string, config: Record<st
   const content = await readTextFile(filePath);
   if (!hasAgentTemplatePlaceholders(content)) return content;
   const rendered = renderAgentTemplatePlaceholders(content, config, agentId);
-  if (rendered !== content) {
-    await fs.writeFile(filePath, rendered, "utf-8");
-  }
+  // Rendering placeholders is a view operation, not a file migration.
   return rendered;
 }
 

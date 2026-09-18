@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { useShallow } from 'zustand/react/shallow';
 import { useSettingsStore } from '../store';
@@ -47,6 +47,10 @@ export function AgentTab() {
   const [agentName, setAgentName] = useState('');
   const [identity, setIdentity] = useState('');
   const [ishiki, setIshiki] = useState('');
+  const draftOwner = useRef<string | null>(null);
+  const dirty = useRef({ identity: false, ishiki: false });
+  const saving = useRef(false);
+  const [isSaving, setIsSaving] = useState(false);
   const [expCategories, setExpCategories] = useState<ExpCategory[]>([]);
   const [exportPlanningAgentId, setExportPlanningAgentId] = useState<string | null>(null);
   const [exportingCharacterCard, setExportingCharacterCard] = useState(false);
@@ -55,12 +59,16 @@ export function AgentTab() {
 
   useEffect(() => {
     if (settingsConfig) {
+      if (draftOwner.current !== selectedSettingsAgentId) {
+        draftOwner.current = selectedSettingsAgentId;
+        dirty.current = { identity: false, ishiki: false };
+      }
       setAgentName(settingsConfig.agent?.name || '');
-      setIdentity(settingsConfig._identity || '');
-      setIshiki(settingsConfig._ishiki || '');
+      if (!dirty.current.identity) setIdentity(settingsConfig._identity || '');
+      if (!dirty.current.ishiki) setIshiki(settingsConfig._ishiki || '');
       setExpCategories(parseExperience(settingsConfig._experience || ''));
     }
-  }, [settingsConfig]);
+  }, [settingsConfig, selectedSettingsAgentId]);
 
   const currentYuan = settingsConfig?.agent?.yuan || 'openZetcX';
 
@@ -135,6 +143,9 @@ export function AgentTab() {
   };
 
   const saveAgent = async () => {
+    if (saving.current || !settingsConfig) return;
+    saving.current = true;
+    setIsSaving(true);
     try {
       const agentId = getSettingsAgentId()!;
       const identityChanged = identity !== (settingsConfig?._identity || '');
@@ -162,17 +173,26 @@ export function AgentTab() {
         }));
       }
 
-      const results = await Promise.all(requests);
+      // Wait for both writes to settle before allowing another save.
+      const settled = await Promise.allSettled(requests);
+      const results = settled.map(result => {
+        if (result.status === 'rejected') throw result.reason;
+        return result.value;
+      });
       for (const res of results) {
         const data = await res.json();
         if (data.error) throw new Error(data.error);
       }
 
       showToast(t('settings.saved'), 'success');
+      if (draftOwner.current === agentId) dirty.current = { identity: false, ishiki: false };
       await loadSettingsConfig();
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
       showToast(t('settings.saveFailed') + ': ' + msg, 'error');
+    } finally {
+      saving.current = false;
+      setIsSaving(false);
     }
   };
 
@@ -372,7 +392,8 @@ export function AgentTab() {
             rows={3}
             spellCheck={false}
             value={identity}
-            onChange={(e) => setIdentity(e.target.value)}
+            disabled={isSaving}
+            onChange={(e) => { dirty.current.identity = true; setIdentity(e.target.value); }}
           />
           <span className={styles['settings-form-hint']}>{t('settings.agent.identityHint')}</span>
         </div>
@@ -383,12 +404,13 @@ export function AgentTab() {
             rows={10}
             spellCheck={false}
             value={ishiki}
-            onChange={(e) => setIshiki(e.target.value)}
+            disabled={isSaving}
+            onChange={(e) => { dirty.current.ishiki = true; setIshiki(e.target.value); }}
           />
           <span className={styles['settings-form-hint']}>{t('settings.agent.ishikiHint')}</span>
         </div>
         <div className={styles['settings-form-field']} style={{ display: 'flex', justifyContent: 'center' }}>
-          <button className={styles['settings-save-btn-sm']} onClick={saveAgent}>
+          <button className={styles['settings-save-btn-sm']} onClick={saveAgent} disabled={isSaving || !settingsConfig}>
             {t('settings.save')}
           </button>
         </div>

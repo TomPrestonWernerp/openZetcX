@@ -36,13 +36,13 @@ describe("agents route", () => {
     const avatarDir = path.join(productDir, "role-avatars");
     const avatarBytes = Buffer.from([137, 80, 78, 71]);
     fs.mkdirSync(avatarDir, { recursive: true });
-    fs.writeFileSync(path.join(avatarDir, "developer.png"), avatarBytes);
+    fs.writeFileSync(path.join(avatarDir, "general.png"), avatarBytes);
 
     const { createAgentsRoute } = await import("../server/routes/agents.ts");
     const app = new Hono();
     app.route("/api", createAgentsRoute({ productDir }));
 
-    const res = await app.request("/api/agents/role-presets/developer/avatar");
+    const res = await app.request("/api/agents/role-presets/general/avatar");
 
     expect(res.status).toBe(200);
     expect(res.headers.get("content-type")).toBe("image/png");
@@ -53,6 +53,7 @@ describe("agents route", () => {
     const { createAgentsRoute } = await import("../server/routes/agents.ts");
     const app = new Hono();
     const engine = {
+      productDir: tempRoot,
       createAgent: vi.fn().mockResolvedValue({ id: "hana", name: "Hana" }),
       emitEvent: vi.fn(),
     };
@@ -118,6 +119,7 @@ describe("agents route", () => {
     err.code = "INVALID_YUAN";
     err.statusCode = 400;
     const engine = {
+      productDir: tempRoot,
       createAgent: vi.fn().mockRejectedValue(err),
       emitEvent: vi.fn(),
     };
@@ -473,7 +475,30 @@ describe("agents route", () => {
     expectAppEvent(engine.emitEvent, "agent-updated", { agentId });
   });
 
-  it("renders and persists identity template placeholders when reading identity", async () => {
+  it.each(["identity", "ishiki"])("keeps saved %s after recreating the route and engine", async (field) => {
+    const agentDir = path.join(tempRoot, 'hana');
+    fs.mkdirSync(agentDir, { recursive: true });
+    fs.writeFileSync(path.join(agentDir, 'config.yaml'), 'agent:\n  name: Hana\n');
+    const { createAgentsRoute } = await import('../server/routes/agents.ts');
+    const createApp = () => {
+      const app = new Hono();
+      app.route('/api', createAgentsRoute({ agentsDir: tempRoot,
+        invalidateAgentListCache: vi.fn(), updateConfig: vi.fn().mockResolvedValue(undefined), emitEvent: vi.fn(),
+      }));
+      return app;
+    };
+    for (const content of ['用户保存的中文内容\n只能调用知识库回答问题', '']) {
+      const response = await createApp().request(`/api/agents/hana/${field}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ content }),
+      });
+      expect(response.status).toBe(200);
+      const reloaded = await createApp().request(`/api/agents/hana/${field}`);
+      expect(await reloaded.json()).toEqual({ content });
+      expect(fs.readFileSync(path.join(agentDir, `${field}.md`), 'utf-8')).toBe(content);
+    }
+  });
+
+  it("renders identity placeholders without mutating the saved file", async () => {
     const agentId = "template-agent";
     const agentDir = path.join(tempRoot, agentId);
     fs.mkdirSync(agentDir, { recursive: true });
@@ -502,8 +527,8 @@ describe("agents route", () => {
 
     expect(res.status).toBe(200);
     expect(data.content).toBe("# Template Agent\nWang personal assistant");
-    expect(fs.readFileSync(path.join(agentDir, "identity.md"), "utf-8")).toBe(data.content);
-    expect(engine.invalidateAgentListCache).toHaveBeenCalledTimes(1);
+    expect(fs.readFileSync(path.join(agentDir, "identity.md"), "utf-8")).toBe("# {{agentName}}\n{{userName}} personal assistant");
+    expect(engine.invalidateAgentListCache).not.toHaveBeenCalled();
   });
 
   it("rejects dangerous experience headings without overwriting agent files", async () => {

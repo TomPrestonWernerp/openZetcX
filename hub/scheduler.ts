@@ -191,11 +191,13 @@ export class Scheduler {
       // 而该 cache 始终按 master 开关构建，与 per-session 开关解耦。
       // 用户关 master 时自动不带记忆；只关某个 session 的开关不影响这里。
       onBeat: (prompt, runTools: any = {}) => this._executeActivityForAgent(agentId, prompt, "heartbeat", null, {
+        signal: runTools.signal,
         extraCustomTools: Array.isArray(runTools.customTools) ? runTools.customTools : [],
       }),
       onJianBeat: (prompt, cwd, runTools: any = {}) => {
         const isZh = getLocale().startsWith("zh");
-        this._executeActivityForAgent(agentId, prompt, "heartbeat", `${isZh ? "笺" : "jian"}:${path.basename(cwd)}`, {
+        return this._executeActivityForAgent(agentId, prompt, "heartbeat", `${isZh ? "笺" : "jian"}:${path.basename(cwd)}`, {
+          signal: runTools.signal,
           cwd,
           extraCustomTools: Array.isArray(runTools.customTools) ? runTools.customTools : [],
         });

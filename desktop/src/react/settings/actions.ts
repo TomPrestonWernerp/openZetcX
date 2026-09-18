@@ -81,6 +81,10 @@ export async function loadAvatars() {
 }
 
 export async function loadSettingsConfig() {
+  // Both loaders update settingsConfig; a pre-save snapshot must not win later.
+  ++_settingsSnapshotLoadVersion;
+  _settingsSnapshotAbortController?.abort();
+  _settingsSnapshotAbortController = null;
   const store = useSettingsStore.getState();
   const myVersion = ++_settingsConfigLoadVersion;
   if (_settingsConfigAbortController) {
