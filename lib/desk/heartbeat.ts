@@ -707,12 +707,17 @@ export function createHeartbeat({
         devlog(`Phase 1: 工作台巡检执行中...${deskChanged ? "" : " (无文件变化)"}`);
         {
           let timer;
+          const controller = new AbortController();
           try {
             await Promise.race([
               onBeat(prompt, {
+                signal: controller.signal,
                 customTools: patrolLogTool ? [patrolLogTool] : [],
               }),
-              new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(isZh ? "心跳执行超时 (5min)" : "Heartbeat timed out (5min)")), BEAT_TIMEOUT); }),
+              new Promise((_, reject) => { timer = setTimeout(() => {
+                controller.abort();
+                reject(new Error(isZh ? "心跳执行超时 (5min)" : "Heartbeat timed out (5min)"));
+              }, BEAT_TIMEOUT); }),
             ]);
           } finally {
             clearTimeout(timer);
@@ -791,10 +796,14 @@ export function createHeartbeat({
       try {
         {
           let timer;
+          const controller = new AbortController();
           try {
             await Promise.race([
-              onJianBeat(prompt, dir.absPath, { customTools: [jianStatusTool] }),
-              new Promise((_, reject) => { timer = setTimeout(() => reject(new Error(isZh ? `笺 [${label}] 执行超时 (5min)` : `Jian [${label}] timed out (5min)`)), BEAT_TIMEOUT); }),
+              onJianBeat(prompt, dir.absPath, { customTools: [jianStatusTool], signal: controller.signal }),
+              new Promise((_, reject) => { timer = setTimeout(() => {
+                controller.abort();
+                reject(new Error(isZh ? `笺 [${label}] 执行超时 (5min)` : `Jian [${label}] timed out (5min)`));
+              }, BEAT_TIMEOUT); }),
             ]);
           } finally {
             clearTimeout(timer);

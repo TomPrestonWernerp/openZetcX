@@ -21,6 +21,7 @@
  * PUT    /api/agents/:id/experience — 写入经验（拆分）
  */
 import fs from "fs/promises";
+import { writeTextFileAtomic } from "../../shared/atomic-text-file.ts";
 import fsSync from "fs";
 import path from "path";
 import YAML from "js-yaml";
@@ -114,10 +115,7 @@ async function readRenderedAgentTemplateFile(engine, id, fileName) {
   } catch {}
 
   const rendered = renderAgentTemplatePlaceholders(content, cfg, id);
-  if (rendered !== content) {
-    await fs.writeFile(filePath, rendered, "utf-8");
-    engine.invalidateAgentListCache?.();
-  }
+  // Reads must never overwrite a concurrent settings save.
   return rendered;
 }
 
@@ -732,7 +730,7 @@ export function createAgentsRoute(engine) {
       if (typeof content !== "string") {
         return c.json({ error: "content must be a string" }, 400);
       }
-      await fs.writeFile(path.join(agentDir(engine, id), "identity.md"), content, "utf-8");
+      await writeTextFileAtomic(path.join(agentDir(engine, id), "identity.md"), content);
       engine.invalidateAgentListCache();
       await engine.updateConfig({}, { agentId: id, refreshDescription: true });
       emitAppEvent(engine, "agent-updated", { agentId: id });
@@ -771,7 +769,7 @@ export function createAgentsRoute(engine) {
       if (typeof content !== "string") {
         return c.json({ error: "content must be a string" }, 400);
       }
-      await fs.writeFile(path.join(agentDir(engine, id), "ishiki.md"), content, "utf-8");
+      await writeTextFileAtomic(path.join(agentDir(engine, id), "ishiki.md"), content);
       await engine.updateConfig({}, { agentId: id, refreshDescription: true });
       emitAppEvent(engine, "agent-updated", { agentId: id });
       return c.json({ ok: true });

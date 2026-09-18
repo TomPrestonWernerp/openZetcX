@@ -13,7 +13,26 @@ describe("heartbeat workspace output directories", () => {
   });
 
   afterEach(() => {
+    vi.useRealTimers();
     fs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  it("aborts the underlying patrol when its timeout expires", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    const onBeat = vi.fn((_prompt, options) => {
+      signal = options.signal;
+      return new Promise(() => {});
+    });
+    const heartbeat = createHeartbeat({
+      getDeskFiles: async () => [], getWorkspacePath: () => tempRoot,
+      getAgentName: () => 'test', onBeat, intervalMinutes: 31, locale: 'zh-CN',
+    } as any);
+    const pending = heartbeat.beat();
+    await vi.advanceTimersByTimeAsync(5 * 60 * 1000);
+    await pending;
+    expect(onBeat).toHaveBeenCalledOnce();
+    expect(signal?.aborted).toBe(true);
   });
 
   it("tells the agent to use visible OH-Works patrol and activity folders", async () => {

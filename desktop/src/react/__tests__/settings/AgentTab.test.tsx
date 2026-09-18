@@ -145,6 +145,26 @@ describe('AgentTab settings agent selection', () => {
     delete (window as unknown as { platform?: unknown }).platform;
   });
 
+  it('preserves edited identity and consciousness through a same-agent background refresh', async () => {
+    const { AgentTab } = await import('../../settings/tabs/AgentTab');
+    const { container } = render(<AgentTab />);
+    const [identity, ishiki] = container.querySelectorAll('textarea');
+    fireEvent.change(identity, { target: { value: 'edited identity' } });
+    fireEvent.change(ishiki, { target: { value: 'edited consciousness' } });
+    act(() => useSettingsStore.setState({ settingsConfig: {
+      agent: { name: 'Hana', yuan: 'hanako' }, _identity: 'old identity', _ishiki: 'old consciousness',
+    } }));
+    expect(identity).toHaveValue('edited identity');
+    expect(ishiki).toHaveValue('edited consciousness');
+    await act(async () => fireEvent.click(screen.getAllByRole('button', { name: 'settings.save' })[1]));
+    expect(hanaFetchMock).toHaveBeenCalledWith('/api/agents/hana/identity', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ content: 'edited identity' }),
+    }));
+    expect(hanaFetchMock).toHaveBeenCalledWith('/api/agents/hana/ishiki', expect.objectContaining({
+      method: 'PUT', body: JSON.stringify({ content: 'edited consciousness' }),
+    }));
+  });
+
   it('rerenders when browsing a different settings agent', async () => {
     const { AgentTab } = await import('../../settings/tabs/AgentTab');
     render(<AgentTab />);

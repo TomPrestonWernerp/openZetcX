@@ -7,7 +7,7 @@ const { createHeartbeatMock, heartbeatInstances, heartbeatOptions } = vi.hoisted
   heartbeatOptions: [],
 }));
 
-vi.mock("../lib/desk/heartbeat.js", () => ({
+vi.mock("../lib/desk/heartbeat.ts", () => ({
   HEARTBEAT_ACTIVITY_DIR: ".hana-heartbeat",
   createHeartbeat: createHeartbeatMock,
 }));
@@ -97,12 +97,14 @@ describe("Scheduler heartbeat defaults", () => {
       emitDevLog: vi.fn(),
     };
     const scheduler = new Scheduler({ hub: { engine } });
-    scheduler._executeActivityForAgent = vi.fn();
+    const execution = Promise.resolve();
+    scheduler._executeActivityForAgent = vi.fn().mockReturnValue(execution);
     scheduler.startHeartbeat();
 
     const scopedTool = { name: "jian_update_status", execute: vi.fn() };
     const cwd = path.join(root, "desk", "task-a");
-    heartbeatOptions[0].onJianBeat("jian prompt", cwd, { customTools: [scopedTool] });
+    const signal = new AbortController().signal;
+    expect(heartbeatOptions[0].onJianBeat("jian prompt", cwd, { customTools: [scopedTool], signal })).toBe(execution);
 
     expect(scheduler._executeActivityForAgent).toHaveBeenCalledWith(
       "agent-a",
@@ -111,6 +113,7 @@ describe("Scheduler heartbeat defaults", () => {
       expect.any(String),
       {
         cwd,
+        signal,
         extraCustomTools: [scopedTool],
       },
     );

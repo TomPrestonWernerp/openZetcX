@@ -73,6 +73,18 @@ describe('hanaFetch', () => {
     await expect(hanaFetch('/api/missing')).rejects.toThrow('404');
   });
 
+  it('releases a shared caller signal listener after every request, including failures', async () => {
+    const controller = new AbortController();
+    const add = vi.spyOn(controller.signal, 'addEventListener');
+    const remove = vi.spyOn(controller.signal, 'removeEventListener');
+    mockFetch.mockResolvedValueOnce({ ok: true }).mockRejectedValueOnce(new Error('offline'));
+    await hanaFetch('/api/health', { signal: controller.signal });
+    await expect(hanaFetch('/api/health', { signal: controller.signal })).rejects.toThrow('offline');
+    expect(remove).toHaveBeenCalledTimes(2);
+    expect(remove.mock.calls[0][1]).toBe(add.mock.calls[0][1]);
+    expect(remove.mock.calls[1][1]).toBe(add.mock.calls[1][1]);
+  });
+
   it('允许调用方显式读取非 2xx 响应体', async () => {
     const response = {
       ok: false,

@@ -2,6 +2,7 @@ import { memo, useState } from 'react';
 import { hanaFetch } from '../../hooks/use-hana-fetch';
 import type { ContentBlock } from '../../stores/chat-types';
 import styles from './KnowledgeSourcesBlock.module.css';
+import chatStyles from './Chat.module.css';
 
 type KnowledgeSources = Extract<ContentBlock, { type: 'knowledge_sources' }>;
 type KnowledgeSource = KnowledgeSources['sources'][number];
@@ -37,11 +38,12 @@ function displayCitationId(citationId: string): string {
 }
 
 export const KnowledgeSourcesBlock = memo(function KnowledgeSourcesBlock({ block }: { block: KnowledgeSources }) {
+  const [expanded, setExpanded] = useState(false);
   const [windows, setWindows] = useState<Record<string, OriginalWindow>>({});
   const [loadingId, setLoadingId] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [openIds, setOpenIds] = useState<Set<string>>(
-    () => new Set(block.sources[0]?.citationId ? [block.sources[0].citationId] : []),
+    () => new Set(),
   );
 
   async function loadOriginal(source: KnowledgeSource) {
@@ -77,18 +79,14 @@ export const KnowledgeSourcesBlock = memo(function KnowledgeSourcesBlock({ block
   if (!block.sources.length) return null;
 
   return (
-    <section className={styles.root} aria-label="知识库引用">
-      <header className={styles.header}>
-        <span className={styles.icon} aria-hidden="true">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round">
-            <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3H11v16H6.5A2.5 2.5 0 0 0 4 21.5v-16Z" />
-            <path d="M20 5.5A2.5 2.5 0 0 0 17.5 3H13v16h4.5a2.5 2.5 0 0 1 2.5 2.5v-16Z" />
-          </svg>
-        </span>
-        <strong>知识库引用</strong>
-        <span className={styles.count}>{block.sources.length}</span>
-      </header>
-      <div className={styles.sources}>
+    <section className={`${chatStyles.thinkingBlock} ${styles.root}`} aria-label="知识库引用">
+      <button type="button" className={`${chatStyles.thinkingBlockSummary} ${styles.header}`}
+        aria-expanded={expanded} onClick={() => setExpanded(value => !value)}>
+        <span aria-hidden="true" className={`${chatStyles.thinkingBlockArrow}${expanded ? ` ${chatStyles.thinkingBlockArrowOpen}` : ''}`}>›</span>
+        <span>知识库引用</span>
+        <span className={styles.count}>（{block.sources.length}）</span>
+      </button>
+      {expanded && <div className={styles.sources}>
         {block.sources.map((source) => {
           const location = locationLabel(source);
           const score = scoreLabel(source.score);
@@ -114,11 +112,9 @@ export const KnowledgeSourcesBlock = memo(function KnowledgeSourcesBlock({ block
                 <span className={styles.fileName}>{source.fileName}</span>
                 {location ? <span className={styles.location}>{location}</span> : null}
               </summary>
-              <div className={styles.body}>
+              {openIds.has(source.citationId) && <div className={styles.body}>
                 <div className={styles.meta}>
                   <span>{source.kbName}</span>
-                  <span>文件 ID：{source.fileId}</span>
-                  {source.chunkId ? <span>分块 ID：{source.chunkId}</span> : null}
                   {score ? <span>{score}</span> : null}
                 </div>
                 <blockquote className={styles.evidence}>{source.evidence}</blockquote>
@@ -142,11 +138,11 @@ export const KnowledgeSourcesBlock = memo(function KnowledgeSourcesBlock({ block
                     <pre>{original.content}</pre>
                   </div>
                 ) : null}
-              </div>
+              </div>}
             </details>
           );
         })}
-      </div>
+      </div>}
     </section>
   );
 });

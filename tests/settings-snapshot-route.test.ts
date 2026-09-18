@@ -182,7 +182,7 @@ describe("settings snapshot route", () => {
     expect(body.userProfile).toBe("user profile");
   });
 
-  it("renders and persists identity placeholders in the unified settings snapshot", async () => {
+  it("renders identity placeholders without writing in the unified settings snapshot", async () => {
     const engine = await makeEngine();
     await writeFile(
       path.join(engine.agentsDir, "agent-a", "config.yaml"),
@@ -214,7 +214,7 @@ describe("settings snapshot route", () => {
     expect(body.identity).toBe("# Agent A\nOwner personal assistant");
     expect(body.publicIshiki).toBe("Agent A public");
     await expect(fs.readFile(path.join(engine.agentsDir, "agent-a", "identity.md"), "utf-8"))
-      .resolves.toBe(body.identity);
+      .resolves.toBe("# {{agentName}}\n{{userName}} personal assistant");
   });
 
   it("includes first-frame access and bridge truth in the unified settings snapshot", async () => {

@@ -38,7 +38,12 @@ describe('KnowledgeSourcesBlock', () => {
     render(<KnowledgeSourcesBlock block={block} />);
 
     expect(screen.getByText('知识库引用')).toBeTruthy();
+    expect(screen.queryByText('[KB-abc123-1]')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /知识库引用/ }));
     expect(screen.getByText('[KB-abc123-1]')).toBeTruthy();
+    const details = screen.getByText('差旅管理办法.pdf').closest('details')!;
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
     expect(screen.getByText('差旅管理办法.pdf')).toBeTruthy();
     expect(screen.getByText('第 4 页 · 第 21-23 行')).toBeTruthy();
     expect(screen.getByText('公司制度库')).toBeTruthy();
@@ -57,6 +62,10 @@ describe('KnowledgeSourcesBlock', () => {
     });
     render(<KnowledgeSourcesBlock block={block} />);
 
+    fireEvent.click(screen.getByRole('button', { name: /知识库引用/ }));
+    const details = screen.getByText('差旅管理办法.pdf').closest('details')!;
+    details.open = true;
+    fireEvent(details, new Event('toggle'));
     fireEvent.click(screen.getByRole('button', { name: '展开原文' }));
 
     await waitFor(() => {
