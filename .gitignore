@@ -34,6 +34,7 @@ dist/
 dist-server/
 dist-server-bundle/
 dist-computer-use/
+dist-sandbox/
 desktop/main.bundle.cjs
 desktop/preload.bundle.cjs
 .cache/
@@ -60,6 +61,7 @@ tmp/
 test-results/
 __pycache__/
 *.pyc
+*.obj
 /index.html
 homepage/
 desktop/src/react/animation-mockup/
